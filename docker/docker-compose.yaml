@@ -1,0 +1,61 @@
+services:
+  minio:
+    image: minio/minio
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-mlflowadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-mlflowadmin123}
+    volumes:
+      - ./data/minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  minio-setup:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-mlflowadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-mlflowadmin123}
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      set -euo pipefail;
+      until mc alias set minio http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+        echo "Waiting for MinIO...";
+        sleep 3;
+      done;
+      mc mb --ignore-existing minio/mlflow;
+    restart: "no"
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow
+    depends_on:
+      minio:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    command: >-
+      mlflow server
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root s3://mlflow
+      --host 0.0.0.0
+      --port 5000
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-mlflowadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-mlflowadmin123}
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - ./data/mlflow:/mlflow
+    ports:
+      - "5001:5000"
+
+volumes: {}

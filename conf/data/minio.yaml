@@ -1,0 +1,15 @@
+
+type: minio
+
+endpoint: "http://localhost:9000"   # or your server
+bucket: "ml-bucket"
+dataset_path: "s3://ml-bucket/datasets/train/"  # parquet partitioned
+
+access_key: ${oc.env:MINIO_ACCESS_KEY,minioadmin}
+secret_key: ${oc.env:MINIO_SECRET_KEY,minioadmin}
+region: "us-east-1"
+addressing_style: "path"
+
+split:
+  test_size: 0.2
+  random_state: 42

@@ -1,0 +1,13 @@
+# Preprocessing steps
+preprocessing:
+  imputation:
+    strategy: mean          # mean, median, most_frequent
+  scaling:
+    type: standard          # standard, minmax, robust, none
+  encoding:
+    type: onehot            # onehot, label, target, none
+
+# Train/validation split
+split:
+  test_size: 0.2
+  random_state: 42
