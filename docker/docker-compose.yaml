@@ -58,4 +58,28 @@ services:
     ports:
       - "5001:5000"
 
+  data:
+    image: python:3.12-slim
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+    command: ["sleep", "infinity"]
+  model:
+    image: python:3.12-slim
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+    command: ["sleep", "infinity"]
+  api:
+    image: python:3.12-slim
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+    command: ["sleep", "infinity"]
+  client:
+    image: python:3.12-slim
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+    command: ["sleep", "infinity"]
 volumes: {}
