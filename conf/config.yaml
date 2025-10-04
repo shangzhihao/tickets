@@ -1,2 +1,4 @@
+defaults:
+  - data: local
 project_name: tickets
 seed: 42

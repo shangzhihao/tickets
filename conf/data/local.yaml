@@ -1,0 +1,6 @@
+
+raw_input: data/raw/tickets.json
+bronze: data/bronze/tickets.parquet
+online: data/online/tickets.parquet
+offline: data/offline/tickets.parquet
+num_online: 10000
