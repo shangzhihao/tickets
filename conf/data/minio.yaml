@@ -1,0 +1,13 @@
+
+type: minio
+
+endpoint: "http://localhost:9000"
+bucket: "tickets"
+raw_file: "raw/tickets.json"
+bronze_file: "bronze/tickets.parquet"
+offline_file: "offline/tickets.parquet"
+access_key: ${oc.env:MINIO_ACCESS_KEY,minioadmin}
+secret_key: ${oc.env:MINIO_SECRET_KEY,minioadmin}
+region: "us-east-1"
+
+num_online: 10000

@@ -1,68 +1,73 @@
 # Intelligent Ticket Analytics Platform
 
-## Overview
-This repository will host an end-to-end system for learning from historical support tickets and assisting agents in real time. The planned solution combines classical analytics, machine learning, and retrieval-augmented generation (RAG) to triage tickets, recommend resolutions, surface anomalies, and measure team performance.
+This repository implements the ingestion and serving backbone for an intelligent ticket analytics platform. The current focus -- and the only production-ready component today -- is a Prefect-powered data ingestion flow that hydrates S3/MinIO storage with bronze, offline, and online datasets, then publishes the freshest tickets to Redis for low-latency access. Supporting infrastructure can be provisioned locally via Docker Compose or in-cluster with the provided Kubernetes manifests. Additional analytics, modeling, and API layers are under active development.
 
-## What We Will Build
-- **Hydra-driven CLI** exposed through `python main.py analytics ...` that orchestrates ingestion, analytics, modeling, and reporting pipelines.
-- **Analytics bundle** that computes resolution speed, SLA compliance, CSAT drivers, and agent performance metrics with optional artifact persistence under `outputs/`.
-- **Intelligent processing engine** featuring:
-  - Multi-model ticket categorization (gradient boosting + deep learning) with experiment tracking.
-  - Hybrid RAG + graph-powered retrieval tying tickets, products, issues, knowledge base entries, and resolutions together.
-  - Anomaly detection to flag emerging issues, sentiment shifts, and retrieval failures.
-- **Lifecycle automation** covering model retraining, evaluation, and deployment-ready packaging (containers, configs, monitoring hooks).
+## Key Capabilities Today
+- Hydra-based CLI entry point (`python -m tickets.main`) that locks configuration using `OmegaConf` and dispatches work through a lightweight task runner.
+- Prefect flow `tickets.data.ingest.ingest` that: reads raw JSON tickets, materializes a bronze parquet snapshot, produces a cleaned offline dataset, and curates a recency-ordered online slice.
+- S3-compatible storage integration via `boto3`, targeting MinIO by default (`conf/data/minio.yaml`) with environment overrides for production credentials.
+- Redis JSON persistence for the online dataset, pushed through a pipeline for efficient bulk writes.
+- Pydantic `Ticket` schema describing the normalized ticket contract, plus Loguru-backed structured logging to `logs/app.log`.
 
-## Repository Layout
+## Project Layout
 ```
-src/
-  tickets/
-    analytics/         # Upcoming analytics pipeline modules (args, loader, metrics, drivers, reporting, pipeline)
-    api/               # Future API endpoints for ticket intake and solution delivery
-    data/              # Data adapters and feature loading utilities
-    models/            # Training scripts, metadata, and model registries
-    schemas/           # Pydantic/Dataclass schemas for configs and artifacts
-    utils/             # Shared helpers (date parsing, logging wrappers, etc.)
-assets/                # Sample datasets and configuration docs (to be documented when added)
-outputs/               # Persisted analytics reports, models, logs
-conf/                  # Hydra configuration tree (to be introduced)
+conf/                  # Hydra configuration tree (data sources, model defaults, logging, serving)
+docker/                # Local dependency stack (MinIO, MLflow, Redis)
+k8s/                   # Kustomize manifests for MLflow + MinIO deployments
+src/tickets/
+  data/                # Prefect flow and task implementations
+  schemas/             # Pydantic models (Ticket domain schema)
+  utils/               # Shared utilities such as logging setup
+tests/                 # Pytest suite placeholder for upcoming coverage
 ```
 
 ## Getting Started
 1. `python -m venv .venv && source .venv/bin/activate`
 2. `pip install -U pip`
-3. `pip install -e .[dev]`  ↳ once `pyproject.toml` exposes `[project.optional-dependencies]` entries.
-4. Run formatting and linting with `python -m black .` and `ruff check .` before committing.
+3. `pip install -e .[dev]`
+4. Run `python -m black .` and `ruff check .` before committing, then use `pytest` (or `pytest -k pattern`) once tests are in place.
 
-## CLI Usage (planned)
+## Local Dependencies with Docker Compose
+- Start services: `docker compose -f docker/docker-compose.yaml up`
+- Exposed endpoints:
+  - MLflow UI: http://127.0.0.1:5001
+  - MinIO S3 API: http://127.0.0.1:9000 (console on 9001)
+  - Redis Stack: redis://127.0.0.1:6379
+- Data persists under `docker/data/`; stop with `docker compose -f docker/docker-compose.yaml down`.
+- Override MinIO credentials by exporting `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` before launch.
+
+## Running the Ingestion Flow
 ```bash
-python main.py analytics --start-date 2024-01-01 --end-date 2024-01-31 \
-  --agent-id AGENT-101 --output-dir outputs/analytics --refresh-models
+python -m tickets.main \
+  data=minio \
+  redis_host=127.0.0.1 \
+  redis_port=6379
 ```
-- `--dry-run` prints the report without writing artifacts.
-- `--refresh-models` retrains satisfaction driver models and updates stored weights.
-- Arguments will be parsed via `tickets.analytics.args.parse_analytics_args` to keep Hydra configs decoupled from CLI concerns.
+- Hydra reads defaults from `conf/config.yaml`. Override any setting inline (`data.bucket=tickets-dev`) or by swapping configs (`data=aws`).
+- The flow expects the raw ticket payload at `data.raw_file`; upload sample data to MinIO (see `docker` stack) before running.
+- Successful runs emit structured logs to `logs/app.log` and cache S3 writes via `tickets.data.ingest.get_s3_client`.
 
-## Data Requirements
-- Primary input: bronze/offline parquet or JSON files with columns such as `ticket_id`, `created_at`, `resolved_at`, `status`, `priority`, `channel`, `queue`, `agent_id`, `satisfaction_score`, `sla_breach`, and `reopened_count`.
-- Optional joins: agent roster, customer segmentation, SLA targets by queue. Place small fixtures in `assets/` and document them here when committed.
-- Analytics pipeline outputs JSON/CSV/Parquet bundles in `outputs/analytics/` and serialized models (e.g., `outputs/models/satisfaction_model.pkl`).
+## Configuration Notes
+- `conf/data/minio.yaml` uses `${oc.env:MINIO_ACCESS_KEY}` and `${oc.env:MINIO_SECRET_KEY}` lookups with sensible defaults for local work.
+- `conf/config.yaml` also sets Redis host/port and data split ratios to keep experiments deterministic.
+- Additional model configurations (`conf/catboost`, `conf/dnn`, `conf/xgboost`) are present for upcoming training pipelines and can be overridden using standard Hydra syntax.
 
-## Testing Strategy
-- Use `pytest` for unit/integration coverage; target critical-path behaviors (date parsing, SLA math, model fallbacks).
-- Run `pytest --maxfail=1 --disable-warnings -q` locally and in CI.
-- Provide fixture datasets under `tests/fixtures/` for deterministic analytics and modeling tests.
+## Kubernetes Deployment (Optional)
+- Apply the Kustomize overlay after configuring secrets: `kubectl apply -k k8s`
+- Default hostPorts expose:
+  - MLflow tracking: http://127.0.0.1:5001
+  - MinIO S3 API: http://127.0.0.1:30900
+  - MinIO console: http://127.0.0.1:30901
+- Update credentials in `k8s/minio.yaml` prior to any shared or production environment rollouts.
 
-## Roadmap Highlights
-1. Extend Hydra config schemas to cover analytics toggles, output targets, and data sources.
-2. Implement CLI argument parsing and command dispatch in `main.py`.
-3. Build data loaders, transformers, and metric calculators in `tickets/analytics/`.
-4. Train satisfaction driver models with feature importance reporting and artifact persistence.
-5. Wire reporting layer for CLI output plus JSON/CSV/Parquet exports.
-6. Add anomaly detection and graph-enhanced RAG retrieval for ticket recommendations.
-7. Document architecture, model benchmarks, and operational playbooks alongside the code.
+## Development Checklist
+- Add regression tests under `tests/` as new features land; follow `test_<topic>.py` naming.
+- Keep modules small and typed—public functions already expose type hints and leverage `from __future__ import annotations`.
+- Use `mypy`, `ruff`, and `black` to enforce style/quality; configurations live in `pyproject.toml`.
+- Review `AGENTS.md` and `nogit-task.md` for contributor guidance and assignment context.
 
-## Contributing & Next Steps
-- Keep modules focused and documented; favor composition over monoliths.
-- Maintain clean commit history with imperative subjects (e.g., `Add analytics pipeline skeleton`).
-- Use issues/PRs to track open questions (dataset gaps, modeling trade-offs, deployment needs).
-- Upcoming tasks include adding `pyproject.toml`, codifying dev dependencies, and standing up the first analytics module skeletons.
+## Next Steps
+- Expand `tickets.data.clean` with domain-specific cleansing, enrichments, and SLA derivations.
+- Stand up analytics and modeling pipelines in new `tickets/analytics` modules, keeping CLI orchestration under `tickets.main`.
+- Introduce fixture datasets in `assets/` and corresponding tests to lock in expected flow outputs.
+- Document progress milestones in this README as additional components graduate from WIP to usable modules.

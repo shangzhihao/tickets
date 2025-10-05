@@ -210,4 +210,8 @@ docker/data
 .vscode
 *.parquet
 tickets.json
+<<<<<<< HEAD
 *.duckdb
+=======
+*.duckdb
+>>>>>>> dev

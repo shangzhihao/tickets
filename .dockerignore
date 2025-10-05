@@ -37,4 +37,10 @@ docker/data/
 
 # Data artifacts
 *.parquet
+<<<<<<< HEAD
 *.duckdb
+=======
+*.duckdb
+tickets.json
+
+>>>>>>> dev
