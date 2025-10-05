@@ -1,4 +1,7 @@
 defaults:
-  - data: local
+  - data: minio
+  - onlinedb: duck
+  - _self_
 project_name: tickets
 seed: 42
+redis_url: redis://localhost:6379/0

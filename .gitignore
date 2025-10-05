@@ -210,3 +210,4 @@ docker/data
 .vscode
 *.parquet
 tickets.json
+*.duckdb

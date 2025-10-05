@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -190,7 +189,7 @@ class Ticket(BaseModel):
     agent_specialization: AgentSpecialization
     agent_actions: list[str]
     escalated: bool
-    escalation_reason: Optional[EscalationReason] = None
+    escalation_reason: EscalationReason | None = None
     transferred_count: int = Field(ge=0, le=3)
     satisfaction_score: int = Field(ge=1, le=5)
     feedback_text: str
@@ -206,7 +205,7 @@ class Ticket(BaseModel):
     product_version_age_days: int = Field(ge=0)
     known_issue: bool
     bug_report_filed: bool
-    resolution_template_used: Optional[str] = None
+    resolution_template_used: str | None = None
     auto_suggested_solutions: list[str]
     auto_suggestion_accepted: bool
     ticket_text_length: int = Field(ge=0)
@@ -221,11 +220,3 @@ class Ticket(BaseModel):
     language: Language
     region: Region
 
-    @model_validator(mode="after")
-    def validate_escalation_reason(self) -> Ticket:
-        """Ensure the escalation reason aligns with the escalation flag."""
-        if self.escalated and self.escalation_reason is None:
-            raise ValueError("escalation_reason must be provided when escalated is True")
-        if not self.escalated and self.escalation_reason is not None:
-            raise ValueError("escalation_reason must be omitted when escalated is False")
-        return self

@@ -4,7 +4,7 @@ services:
     command: server /data --console-address :9001
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-mlflowadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-mlflowadmin123}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-mlflowadmin}
     volumes:
       - ./data/minio:/data
     ports:
@@ -58,28 +58,15 @@ services:
     ports:
       - "5001:5000"
 
-  data:
-    image: python:3.12-slim
-    working_dir: /workspace
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save 60 1 --loglevel warning
     volumes:
-      - ../:/workspace
-    command: ["sleep", "infinity"]
-  model:
-    image: python:3.12-slim
-    working_dir: /workspace
-    volumes:
-      - ../:/workspace
-    command: ["sleep", "infinity"]
-  api:
-    image: python:3.12-slim
-    working_dir: /workspace
-    volumes:
-      - ../:/workspace
-    command: ["sleep", "infinity"]
-  client:
-    image: python:3.12-slim
-    working_dir: /workspace
-    volumes:
-      - ../:/workspace
-    command: ["sleep", "infinity"]
-volumes: {}
+      - ./data/redis:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
