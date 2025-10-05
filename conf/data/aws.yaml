@@ -1,0 +1,11 @@
+
+type: minio
+
+bucket: "tickets"
+raw_file: "raw/tickets.json"
+bronze_file: "bronze/tickets.parquet"
+offline_file: "offline/tickets.parquet"
+access_key: ${oc.env:MINIO_ACCESS_KEY,mlflowadmin}
+secret_key: ${oc.env:MINIO_SECRET_KEY,mlflowadmin}
+region: "us-east-1"
+num_online: 10000

@@ -1,7 +1,18 @@
 defaults:
   - data: minio
   - onlinedb: duck
+  - catboost: defaults
+  - dnn: defaults
+  - xgboost: defaults
   - _self_
 project_name: tickets
 seed: 42
-redis_url: redis://localhost:6379/0
+
+
+redis_host: localhost
+redis_port: 6379
+
+split:
+  - train: 0.7
+  - val: 0.15
+  - test: 0.15

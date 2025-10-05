@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import io
 from functools import lru_cache
+import json
 
 import boto3
-import duckdb
 import pandas as pd
 from botocore.client import Config
 from omegaconf import DictConfig
 from prefect import flow, task
-
+import redis
 from ..utils.logger import logger
 
 @lru_cache(maxsize=1)
@@ -59,9 +59,7 @@ def bronze(cfg: DictConfig) -> pd.DataFrame:
     return raw_df
 
 
-def clean(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply lightweight, in-memory cleanup before persistence."""
-
+def clean(cfg: DictConfig, df: pd.DataFrame) -> pd.DataFrame:
     return df.copy()
 
 @task
@@ -78,7 +76,7 @@ def offline(cfg: DictConfig, df: pd.DataFrame | None) -> pd.DataFrame:
         logger.info(f"{len(bronze_df)} bronze records read from s3")
     else:
         bronze_df = df.copy()
-    offline_df = clean(bronze_df)
+    offline_df = clean(cfg,bronze_df)
     # Write the cleaned dataset to the offline S3 location.
     buf = io.BytesIO()
     offline_df.to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
@@ -119,13 +117,23 @@ def online(cfg: DictConfig, df: pd.DataFrame | None) -> pd.DataFrame:
     else:
         offline_df = df.copy()
     online_df = make_online(cfg, offline_df)
-    db_path = cfg.onlinedb.duck_db_file
-    table = cfg.onlinedb.table_name
+    cols = ['created_at', 'updated_at', 'resolved_at']
+    online_df[cols] = online_df[cols].apply(lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S%z"))
 
-    con = duckdb.connect(db_path)
-    # Create the serving table if needed and populate it with the ordered rows.
-    con.execute(f"CREATE TABLE IF NOT EXISTS {table} AS SELECT * FROM df")
-    con.close()
-    logger.info(f"{len(online_df)} online records wrote to duckdb")
-
+    r = redis.Redis(
+        host=cfg.redis_host,
+        port=cfg.redis_port,
+        decode_responses=True
+        )
+    pipe = r.pipeline()
+    path = "$"
+    records = online_df.to_dict(orient="records")
+    for ticket in records:
+        pipe.json().set(
+            name=ticket["ticket_id"],
+            path=path,
+            obj=ticket)
+    results = pipe.execute()
+    logger.info(f"{sum(results)} records wrote into redis")
+    logger.info(f"{len(results) - sum(results)} records failed to write into redis")
     return online_df

@@ -3,8 +3,8 @@ services:
     image: minio/minio
     command: server /data --console-address :9001
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-mlflowadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-mlflowadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - ./data/minio:/data
     ports:
@@ -23,8 +23,8 @@ services:
       minio:
         condition: service_healthy
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-mlflowadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-mlflowadmin123}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     entrypoint: ["/bin/sh", "-c"]
     command: >-
       set -euo pipefail;
@@ -59,8 +59,7 @@ services:
       - "5001:5000"
 
   redis:
-    image: redis:7-alpine
-    command: redis-server --save 60 1 --loglevel warning
+    image: redis/redis-stack-server:latest
     volumes:
       - ./data/redis:/data
     ports:
