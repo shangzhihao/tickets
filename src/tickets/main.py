@@ -6,7 +6,7 @@ from .data.runner import Task, runner
 
 
 @hydra.main(config_path="../../conf", config_name="config", version_base=None)
-def main(cfg: DictConfig):
+def main(cfg: DictConfig)->None:
     OmegaConf.set_readonly(cfg, True)
     runner(cfg, Task.INGEST)
 

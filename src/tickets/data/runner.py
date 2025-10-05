@@ -1,7 +1,9 @@
 from enum import StrEnum, auto
+
 from omegaconf import DictConfig
 
 from .ingest import ingest
+
 
 class Task(StrEnum):
     INGEST = auto()

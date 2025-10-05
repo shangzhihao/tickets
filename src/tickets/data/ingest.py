@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import io
 from functools import lru_cache
-import json
 
 import boto3
 import pandas as pd
+import redis
 from botocore.client import Config
 from omegaconf import DictConfig
 from prefect import flow, task
-import redis
+
 from ..utils.logger import logger
+
 
 @lru_cache(maxsize=1)
 def get_s3_client(cfg: DictConfig):
@@ -29,7 +30,7 @@ def get_s3_client(cfg: DictConfig):
     return s3
 
 @flow
-def ingest(cfg: DictConfig):
+def ingest(cfg: DictConfig)->None:
     """Materialize bronze, offline, and online datasets in a single run."""
 
     df = bronze(cfg)
@@ -118,7 +119,8 @@ def online(cfg: DictConfig, df: pd.DataFrame | None) -> pd.DataFrame:
         offline_df = df.copy()
     online_df = make_online(cfg, offline_df)
     cols = ['created_at', 'updated_at', 'resolved_at']
-    online_df[cols] = online_df[cols].apply(lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S%z"))
+    online_df[cols] = online_df[cols].apply(
+        lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S%z"))
 
     r = redis.Redis(
         host=cfg.redis_host,
