@@ -1,0 +1,40 @@
+# Exclude version control and editor metadata
+.git
+.gitignore
+.vscode/
+.DS_Store
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyc
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments and local tooling state
+.venv/
+env/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.pytype/
+.cache/
+
+# Environment and secrets
+.env
+.env.*
+.envrc
+.pypirc
+.python-version
+
+# Project outputs that should not ship in the image
+logs/
+outputs/
+docker/data/
+
+# Data artifacts
+*.parquet
+*.duckdb
