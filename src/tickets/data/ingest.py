@@ -8,8 +8,8 @@ import pandas as pd
 import redis
 from prefect import flow, task
 
-from ..utils.config import cfg
-from ..utils.io import data_logger, redis_pool, s3_client
+from ..utils.config_util import cfg
+from ..utils.io_util import data_logger, redis_pool, s3_client
 
 
 @flow

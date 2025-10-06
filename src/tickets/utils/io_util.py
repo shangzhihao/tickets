@@ -13,7 +13,7 @@ from botocore.client import BaseClient, Config
 from loguru import logger
 from omegaconf import DictConfig
 
-from .config import cfg
+from .config_util import cfg
 
 MODULES: Final[tuple[str, ...]] = ("api", "data", "ml")
 

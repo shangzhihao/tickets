@@ -1,10 +1,9 @@
-# src/ml_project/train.py
 
-from .data.runner import Task, runner
-
+from .data.runner import runner
+from .schemas.tasks import Task
 
 def main()->None:
-    runner(Task.INGEST)
+    runner(Task.ANALYZE)
 
 if __name__ == "__main__":
     main()
