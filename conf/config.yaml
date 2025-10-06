@@ -1,9 +1,9 @@
 defaults:
   - data: minio
-  - onlinedb: duck
   - catboost: defaults
   - dnn: defaults
   - xgboost: defaults
+  - logging: defaults
   - _self_
 
 

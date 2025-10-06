@@ -1,7 +1,5 @@
 from enum import StrEnum, auto
 
-from omegaconf import DictConfig
-
 from .ingest import ingest
 
 

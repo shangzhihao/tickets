@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import io
 
-import boto3
 import pandas as pd
 import redis
-from omegaconf import DictConfig
 from prefect import flow, task
 
-from ..utils.io import logger, redis_pool, s3_client
 from ..utils.config import cfg
+from ..utils.io import data_logger, redis_pool, s3_client
 
 
 @flow
@@ -32,14 +30,14 @@ def bronze() -> pd.DataFrame:
     obj = s3_client.get_object(Bucket=cfg.data.bucket, Key=raw_path)
     body = obj["Body"].read()
     raw_df = pd.read_json(io.BytesIO(body), lines=False)
-    logger.info(f"{len(raw_df)} raw records read from s3 json")
+    data_logger.info(f"{len(raw_df)} raw records read from s3 json")
     # Persist the bronze snapshot back to S3 as parquet for downstream steps.
     buf = io.BytesIO()
     raw_df.to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
     buf.seek(0)
     s3_client.upload_fileobj(buf, cfg.data.bucket, bronze_path,
         ExtraArgs={"ContentType": "application/x-parquet"})
-    logger.info(f"{len(raw_df)} bronze records wrote to s3 parquet")
+    data_logger.info(f"{len(raw_df)} bronze records wrote to s3 parquet")
 
     return raw_df
 
@@ -57,7 +55,7 @@ def offline(df: pd.DataFrame | None) -> pd.DataFrame:
         obj = s3_client.get_object(Bucket=cfg.data.bucket, Key=bronze_path)
         body = obj["Body"].read()
         bronze_df = pd.read_parquet(io.BytesIO(body))
-        logger.info(f"{len(bronze_df)} bronze records read from s3")
+        data_logger.info(f"{len(bronze_df)} bronze records read from s3")
     else:
         bronze_df = df.copy()
     offline_df = clean(bronze_df)
@@ -67,7 +65,7 @@ def offline(df: pd.DataFrame | None) -> pd.DataFrame:
     buf.seek(0)
     s3_client.upload_fileobj(buf, cfg.data.bucket, offline_path,
         ExtraArgs={"ContentType": "application/x-parquet"})
-    logger.info(f"{len(offline_df)} offline records wrote to s3")
+    data_logger.info(f"{len(offline_df)} offline records wrote to s3")
 
     return offline_df
 
@@ -96,7 +94,7 @@ def online(df: pd.DataFrame | None) -> pd.DataFrame:
         obj = s3_client.get_object(Bucket=cfg.data.bucket, Key=offline_path)
         body = obj["Body"].read()
         offline_df = pd.read_parquet(io.BytesIO(body))
-        logger.info(f"{len(offline_df)} offline records read to s3")
+        data_logger.info(f"{len(offline_df)} offline records read to s3")
     else:
         offline_df = df.copy()
     online_df = make_online(offline_df)
@@ -112,8 +110,11 @@ def online(df: pd.DataFrame | None) -> pd.DataFrame:
         pipe.json().set(
             name=ticket["ticket_id"],
             path=path,
-            obj=ticket)
+            obj=ticket) # pyright: ignore[reportArgumentType]
     results = pipe.execute()
-    logger.info(f"{sum(results)} records wrote into redis")
-    logger.info(f"{len(results) - sum(results)} records failed to write into redis")
+    written_count = sum(results)
+    failed_count = len(results) - written_count
+    data_logger.info("Records written to redis: {}", written_count)
+    if failed_count:
+        data_logger.warning("Records failed to write to redis: {}", failed_count)
     return online_df
