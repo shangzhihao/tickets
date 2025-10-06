@@ -5,9 +5,9 @@ import io
 from typing import Final
 
 import pandas as pd
-from ..utils.config_util import cfg
-from ..utils.io_util import data_logger, s3_client
 
+from ..utils.config_util import cfg
+from ..utils.io_util import s3_client
 
 OFFLINE_PATH: Final[str] = cfg.data.offline_file
 BUCKET_NAME: Final[str] = cfg.data.bucket

@@ -21,7 +21,6 @@ from tickets.schemas.ticket import CustomerSentiment
 from ..utils.config_util import cfg
 from ..utils.io_util import data_logger, s3_client
 
-
 OFFLINE_PATH: Final[str] = cfg.data.offline_file
 BUCKET_NAME: Final[str] = cfg.data.bucket
 METRICS_PATH: Final[str] = cfg.data.metrics_file
@@ -46,7 +45,8 @@ class OfflineMetricsAnalyzer:
     def __init__(self, offline_df: pd.DataFrame) -> None:
         missing_columns = set(REQUIRED_COLUMNS) - set(offline_df.columns)
         if missing_columns:
-            msg = f"Offline dataframe missing required columns: {sorted(missing_columns)}"
+            msg = "Offline dataframe missing required" \
+            f"columns: {sorted(missing_columns)}"
             data_logger.error(msg)
             raise KeyError(msg)
         self.analysis_res = None
@@ -56,7 +56,7 @@ class OfflineMetricsAnalyzer:
         )
 
     @classmethod
-    def from_s3(cls) -> "OfflineMetricsAnalyzer":
+    def from_s3(cls) -> OfflineMetricsAnalyzer:
         """Load the offline ticket dataframe from S3 and return an analyzer instance."""
 
         obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=OFFLINE_PATH)
@@ -90,7 +90,8 @@ class OfflineMetricsAnalyzer:
         clean_series = series.dropna()
         if clean_series.empty:
             data_logger.warning(
-                "Timedelta metric computation requested on empty series; returning zeros."
+                "Timedelta metric computation requested" \
+                "on empty series; returning zeros."
             )
             zero_delta = timedelta()
             return TimedeltaMetric(

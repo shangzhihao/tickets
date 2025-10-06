@@ -1,9 +1,7 @@
 
 from ..schemas.tasks import Task
-
-from .ingest import ingest
 from .analyze import offline_analyzer
-
+from .ingest import ingest
 
 
 def runner(task: Task):
