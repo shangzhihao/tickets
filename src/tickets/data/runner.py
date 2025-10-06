@@ -9,6 +9,6 @@ class Task(StrEnum):
     INGEST = auto()
 
 
-def runner(cfg: DictConfig, task: Task):
+def runner(task: Task):
     if task == Task.INGEST:
-         ingest(cfg)
+         ingest()

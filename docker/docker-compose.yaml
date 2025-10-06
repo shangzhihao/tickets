@@ -19,11 +19,6 @@ services:
 
   mlflow:
     image: ghcr.io/mlflow/mlflow
-    depends_on:
-      minio:
-        condition: service_healthy
-      minio-setup:
-        condition: service_completed_successfully
     command: >-
       mlflow server
       --backend-store-uri sqlite:////mlflow/mlflow.db
