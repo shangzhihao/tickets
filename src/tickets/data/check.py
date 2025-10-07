@@ -30,6 +30,7 @@ BUCKET_NAME: Final[str] = cfg.data.bucket
 QUALITY_REPORT_PATH: Final[str] = cfg.data.quality_report_file
 MAX_VIOLATIONS = 5
 
+
 class DataQuality:
     def __init__(self, df: pd.DataFrame | None = None) -> None:
         self._df: pd.DataFrame
@@ -60,10 +61,10 @@ class DataQuality:
         return offline_df
 
     @task
-    def check_schema(self)->None:
+    def check_schema(self) -> pd.Series:
         """Validate every ticket row against the Pydantic Ticket schema."""
 
-        invalid_indices: list[int] = []
+        invalid_mask: pd.Series = pd.Series(False, index=self._df.index)
         self.invalid_schema_num = 0
         violations: list[str] = []
 
@@ -72,23 +73,24 @@ class DataQuality:
                 Ticket.model_validate(payload)
             except ValidationError as exc:
                 data_logger.warning(f"row={row_index}: {exc.errors()}")
-                invalid_indices.append(row_index)
+                invalid_mask.iloc[row_index] = True
                 violations.append(f"row={row_index}: {exc.errors()}")
                 continue
-        self.invalid_schema_num = len(invalid_indices)
-        if invalid_indices:
-            self.invalid_indices.loc[invalid_indices] = True
+        self.invalid_schema_num = invalid_mask.sum()
+        if invalid_mask.any():
+            self.invalid_indices = self.invalid_indices | invalid_mask
         DataQaSchemaEvent(
             violations=violations[:MAX_VIOLATIONS],
             records_processed=int(self._df.shape[0]),
             metadata={
                 "invalid_count": self.invalid_schema_num,
-                "violations_sampled":len(violations)
+                "violations_sampled": len(violations),
             },
         ).emit()
+        return invalid_mask.copy()
 
     @task
-    def check_timing(self):
+    def check_timing(self) -> pd.Series:
         start = perf_counter()
         df = self._df
         invalid_mask: pd.Series = pd.Series(False, index=self._df.index)
@@ -109,9 +111,10 @@ class DataQuality:
             passed=check_passed,
             metadata={"rows_flagged": int(invalid_mask.sum())},
         ).emit()
+        return invalid_mask.copy()
 
     @task
-    def check_business(self):
+    def check_business(self) -> None:
         """This is a place holder"""
         invalid_mask = pd.Series(False, index=self._df.index)
         self.invalid_indices = self.invalid_indices | invalid_mask
@@ -137,9 +140,7 @@ class DataQuality:
         ).emit()
         return self.missing_value
 
-    def register_issue(
-        self, mask: pd.Series, message: str, sample_columns: list[str]
-    ) -> None:
+    def register_issue(self, mask: pd.Series, message: str, sample_columns: list[str]) -> None:
         """Log a warning with contextual samples and track invalid rows."""
         if not mask.any():
             return
@@ -153,7 +154,7 @@ class DataQuality:
         report = DataQualityReport(
             invalid_schema=self.invalid_schema_num,
             invalid_timing=self.invalid_timing_num,
-            missing_value=self.missing_value
+            missing_value=self.missing_value,
         )
         summary = (
             f"invalid_schema={report.invalid_schema}, invalid_timing={report.invalid_timing}, "
@@ -170,7 +171,7 @@ class DataQuality:
         ).emit()
         return report
 
-    def clean(self):
+    def clean(self) -> pd.DataFrame:
         self.check_schema()
         self.check_timing()
         cleaned_df = self._df.loc[~self.invalid_indices]

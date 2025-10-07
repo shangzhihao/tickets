@@ -7,7 +7,7 @@ from .ingest import ingest
 
 
 @flow
-def runner(task: Task):
+def runner(task: Task) -> None:
     if task == Task.INGEST:
         ingest()
     elif task == Task.ANALYZE:

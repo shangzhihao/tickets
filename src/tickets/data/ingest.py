@@ -166,9 +166,7 @@ def online(df: pd.DataFrame | None) -> pd.DataFrame:
         offline_df = df.copy()
     online_df = make_online(offline_df)
     cols = ["created_at", "updated_at", "resolved_at"]
-    online_df[cols] = online_df[cols].apply(
-        lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S%z")
-    )
+    online_df[cols] = online_df[cols].apply(lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S%z"))
 
     r = redis.Redis(connection_pool=redis_pool)
     pipe = r.pipeline()
@@ -176,8 +174,10 @@ def online(df: pd.DataFrame | None) -> pd.DataFrame:
     records = online_df.to_dict(orient="records")
     for ticket in records:
         pipe.json().set(
-            name=ticket["ticket_id"], path=path, obj=ticket
-        )  # pyright: ignore[reportArgumentType]
+            name=ticket["ticket_id"],
+            path=path,
+            obj=ticket,  # type: ignore
+        )
     results = pipe.execute()
     written_count = sum(results)
     failed_count = len(results) - written_count

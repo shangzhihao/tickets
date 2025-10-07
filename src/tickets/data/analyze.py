@@ -45,21 +45,19 @@ REQUIRED_COLUMNS = [
     SENTIMENT_COLUMN,
 ]
 
+
 class OfflineMetricsAnalyzer:
     """Compute response-time and satisfaction metrics for offline ticket data."""
 
     def __init__(self, offline_df: pd.DataFrame) -> None:
         missing_columns = set(REQUIRED_COLUMNS) - set(offline_df.columns)
         if missing_columns:
-            msg = "Offline dataframe missing required" \
-            f"columns: {sorted(missing_columns)}"
+            msg = f"Offline dataframe missing requiredcolumns: {sorted(missing_columns)}"
             data_logger.error(msg)
             raise KeyError(msg)
-        self.analysis_res = None
+        self.analysis_res: AnalysisRes
         self.df = offline_df.loc[:, REQUIRED_COLUMNS].copy()
-        self.df[RES_TIME_COLUMN] = (
-            self.df[RESOLVED_AT_COLUMN] - self.df[CREATED_AT_COLUMN]
-        )
+        self.df[RES_TIME_COLUMN] = self.df[RESOLVED_AT_COLUMN] - self.df[CREATED_AT_COLUMN]
 
     @classmethod
     def from_s3(cls) -> OfflineMetricsAnalyzer:
@@ -95,9 +93,7 @@ class OfflineMetricsAnalyzer:
             ContentType="application/json",
             # Optional hardening:
         )
-        data_logger.info(
-            f"Persisted offline analysis metrics to S3 at key {METRICS_PATH}."
-        )
+        data_logger.info(f"Persisted offline analysis metrics to S3 at key {METRICS_PATH}.")
         DataStatsSaveEvent(
             destination_uri=METRICS_PATH,
             metric_names=[
@@ -117,8 +113,7 @@ class OfflineMetricsAnalyzer:
         clean_series = series.dropna()
         if clean_series.empty:
             data_logger.warning(
-                "Timedelta metric computation requested" \
-                "on empty series; returning zeros."
+                "Timedelta metric computation requestedon empty series; returning zeros."
             )
             zero_delta = timedelta()
             return TimedeltaMetric(
@@ -177,11 +172,7 @@ class OfflineMetricsAnalyzer:
     def res_time_by_senti(self) -> dict[CustomerSentiment, ResponseTimeStats]:
         """Response time distribution grouped by customer sentiment."""
 
-        grouped = (
-            self.df.dropna(subset=[SENTIMENT_COLUMN]).groupby(
-                SENTIMENT_COLUMN
-            )
-        )
+        grouped = self.df.dropna(subset=[SENTIMENT_COLUMN]).groupby(SENTIMENT_COLUMN)
         metrics: dict[CustomerSentiment, ResponseTimeStats] = {}
         for sentiment_value, segment in grouped:
             try:
@@ -203,11 +194,7 @@ class OfflineMetricsAnalyzer:
     def sat_score_by_senti(self) -> dict[CustomerSentiment, SatisfactionScoreStats]:
         """Satisfaction score distribution grouped by customer sentiment."""
 
-        grouped = (
-            self.df.dropna(subset=[SENTIMENT_COLUMN]).groupby(
-                SENTIMENT_COLUMN
-            )
-        )
+        grouped = self.df.dropna(subset=[SENTIMENT_COLUMN]).groupby(SENTIMENT_COLUMN)
         metrics: dict[CustomerSentiment, SatisfactionScoreStats] = {}
         for sentiment_value, segment in grouped:
             try:
@@ -225,7 +212,7 @@ class OfflineMetricsAnalyzer:
             )
 
         return metrics
-    
+
     def analyze(self) -> AnalysisRes:
         """Return aggregate metrics across all offline tickets."""
 
@@ -236,8 +223,7 @@ class OfflineMetricsAnalyzer:
 
         DataResTimeStatsEvent(
             percentile_values={
-                key: value.total_seconds()
-                for key, value in res_time_all.model_dump().items()
+                key: value.total_seconds() for key, value in res_time_all.model_dump().items()
             },
             records_aggregated=int(self.df[RES_TIME_COLUMN].dropna().shape[0]),
             metadata={"sentiment_segments": len(res_time_by_senti)},
@@ -252,13 +238,15 @@ class OfflineMetricsAnalyzer:
             },
         ).emit()
 
-        self.analysis_res = AnalysisRes(
+        analysis_res = AnalysisRes(
             res_time_all=res_time_all,
             sat_score_all=sat_score_all,
             res_time_by_senti=res_time_by_senti,
             sat_score_by_senti=sat_score_by_senti,
         )
-        return self.analysis_res
+        self.analysis_res = analysis_res
+        return analysis_res
+
 
 offline_analyzer = OfflineMetricsAnalyzer.from_s3()
 
