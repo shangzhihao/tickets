@@ -17,31 +17,8 @@ services:
       retries: 5
       start_period: 10s
 
-  minio-setup:
-    image: minio/mc
-    depends_on:
-      minio:
-        condition: service_healthy
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    entrypoint: ["/bin/sh", "-c"]
-    command: >-
-      set -euo pipefail;
-      until mc alias set minio http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
-        echo "Waiting for MinIO...";
-        sleep 3;
-      done;
-      mc mb --ignore-existing minio/mlflow;
-    restart: "no"
-
   mlflow:
     image: ghcr.io/mlflow/mlflow
-    depends_on:
-      minio:
-        condition: service_healthy
-      minio-setup:
-        condition: service_completed_successfully
     command: >-
       mlflow server
       --backend-store-uri sqlite:////mlflow/mlflow.db

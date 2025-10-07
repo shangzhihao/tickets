@@ -1,10 +1,12 @@
 defaults:
   - data: minio
-  - onlinedb: duck
   - catboost: defaults
   - dnn: defaults
   - xgboost: defaults
+  - logging: defaults
   - _self_
+
+
 project_name: tickets
 seed: 42
 

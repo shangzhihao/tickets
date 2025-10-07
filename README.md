@@ -1,73 +1,110 @@
-# Intelligent Ticket Analytics Platform
+# Intelligent Ticket Support Platform
 
-This repository implements the ingestion and serving backbone for an intelligent ticket analytics platform. The current focus -- and the only production-ready component today -- is a Prefect-powered data ingestion flow that hydrates S3/MinIO storage with bronze, offline, and online datasets, then publishes the freshest tickets to Redis for low-latency access. Supporting infrastructure can be provisioned locally via Docker Compose or in-cluster with the provided Kubernetes manifests. Additional analytics, modeling, and API layers are under active development.
+This repository hosts the foundation of an intelligent product support system that learns from historical ticket data to triage, resolve, and monitor incoming requests. The implementation prioritizes reproducible data flows, modular machine-learning pipelines, and API-ready components that can be composed into production deployments.
 
-## Key Capabilities Today
-- Hydra-based CLI entry point (`python -m tickets.main`) that locks configuration using `OmegaConf` and dispatches work through a lightweight task runner.
-- Prefect flow `tickets.data.ingest.ingest` that: reads raw JSON tickets, materializes a bronze parquet snapshot, produces a cleaned offline dataset, and curates a recency-ordered online slice.
-- S3-compatible storage integration via `boto3`, targeting MinIO by default (`conf/data/minio.yaml`) with environment overrides for production credentials.
-- Redis JSON persistence for the online dataset, pushed through a pipeline for efficient bulk writes.
-- Pydantic `Ticket` schema describing the normalized ticket contract, plus Loguru-backed structured logging to `logs/app.log`.
+> **Current status:** Data ingestion, offline analytics, configuration, and logging pieces are functional. Modeling, retrieval, anomaly detection, and FastAPI orchestration are under active development with configuration scaffolding already in place.
 
-## Project Layout
+## Platform Highlights
+- **Prefect-powered ingestion** creates bronze/offline/online Parquet datasets in S3/MinIO and publishes online-ready slices into Redis JSON.
+- **Hydra-driven configuration** keeps environments reproducible; overrides are accepted via CLI flags or environment variables.
+- **Structured logging with Loguru** outputs module-scoped logs (`data`, `ml`, `api`) to the `logs/` directory and stdout.
+- **Experiment infrastructure** combines MLflow tracking targets with S3 artifact storage and Redis feature serving.
+- **Model configuration stubs** for CatBoost, XGBoost, and deep learning pipelines support forthcoming Optuna/Bayesian tuning and ensemble workflows.
+
+## Repository Layout
 ```
-conf/                  # Hydra configuration tree (data sources, model defaults, logging, serving)
-docker/                # Local dependency stack (MinIO, MLflow, Redis)
-k8s/                   # Kustomize manifests for MLflow + MinIO deployments
+conf/                      # Hydra configuration tree (data stores, models, logging)
+docker/                    # Local stack (MinIO, MLflow, Redis) via Docker Compose
+logs/                      # Structured logs written by Loguru handlers
+outputs/                   # Placeholder for generated artifacts and analysis exports
 src/tickets/
-  data/                # Prefect flow and task implementations
-  schemas/             # Pydantic models (Ticket domain schema)
-  utils/               # Shared utilities such as logging setup
-tests/                 # Pytest suite placeholder for upcoming coverage
+  data/                    # Prefect flows/tasks for ingestion and offline analytics
+  schemas/                 # Pydantic v2 models (tickets, metrics, task enums)
+  utils/                   # Shared config and IO helpers (Hydra, logging, clients)
+tests/                     # Pytest suite (add tests alongside new features)
+uv.lock                    # Locked dependency set managed by uv
 ```
 
-## Getting Started
-1. `python -m venv .venv && source .venv/bin/activate`
-2. `pip install -U pip`
-3. `pip install -e .[dev]`
-4. Run `python -m black .` and `ruff check .` before committing, then use `pytest` (or `pytest -k pattern`) once tests are in place.
+## Quickstart
+1. Install [uv](https://github.com/astral-sh/uv) (recommended via `pipx install uv`).
+2. Sync the project environment:
+   ```bash
+   uv sync
+   ```
+3. Start local dependencies:
+   ```bash
+   docker compose -f docker/docker-compose.yaml up
+   ```
+   - MinIO S3 API: http://127.0.0.1:9000 (console at :9001)
+   - MLflow UI: http://127.0.0.1:5001
+   - Redis Stack: redis://127.0.0.1:6379
+4. Run the offline analytics task (prints metrics and writes them back to S3):
+   ```bash
+   uv run -m tickets.main data.bucket=tickets data.num_online=1000
+   ```
+5. Execute the ingestion flow when new raw data arrives:
+   ```bash
+   uv run python -c "from tickets.data.runner import runner; \
+from tickets.schemas.tasks import Task; runner(Task.INGEST)" \
+data.raw_file=raw/tickets.json data.bucket=tickets
+   ```
 
-## Local Dependencies with Docker Compose
-- Start services: `docker compose -f docker/docker-compose.yaml up`
-- Exposed endpoints:
-  - MLflow UI: http://127.0.0.1:5001
-  - MinIO S3 API: http://127.0.0.1:9000 (console on 9001)
-  - Redis Stack: redis://127.0.0.1:6379
-- Data persists under `docker/data/`; stop with `docker compose -f docker/docker-compose.yaml down`.
-- Override MinIO credentials by exporting `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` before launch.
+## Configuration
+- Default Hydra configuration lives in `conf/config.yaml`; dataset specifics are under `conf/data/*`.
+- Override any value via CLI (e.g., `data=prod`, `redis_host=redis.internal`).
+- Secrets such as MinIO credentials read `${oc.env:...}` values; export environment variables before running flows.
+- All modules import a shared `cfg` object that is locked read-only to prevent accidental mutation during runtime.
 
-## Running the Ingestion Flow
-```bash
-python -m tickets.main \
-  data=minio \
-  redis_host=127.0.0.1 \
-  redis_port=6379
-```
-- Hydra reads defaults from `conf/config.yaml`. Override any setting inline (`data.bucket=tickets-dev`) or by swapping configs (`data=aws`).
-- The flow expects the raw ticket payload at `data.raw_file`; upload sample data to MinIO (see `docker` stack) before running.
-- Successful runs emit structured logs to `logs/app.log` and cache S3 writes via `tickets.data.ingest.get_s3_client`.
+## Data Pipelines
+### Prefect ingestion (`tickets.data.ingest`)
+1. `bronze`: reads raw ticket JSON from S3/MinIO, writes a compressed Parquet snapshot.
+2. `offline`: applies domain cleaning (extend `clean`) and persists a curated offline Parquet dataset.
+3. `online`: generates a recency-ordered slice, converts datetimes to ISO strings, and writes records to Redis JSON with pipeline batching.
 
-## Configuration Notes
-- `conf/data/minio.yaml` uses `${oc.env:MINIO_ACCESS_KEY}` and `${oc.env:MINIO_SECRET_KEY}` lookups with sensible defaults for local work.
-- `conf/config.yaml` also sets Redis host/port and data split ratios to keep experiments deterministic.
-- Additional model configurations (`conf/catboost`, `conf/dnn`, `conf/xgboost`) are present for upcoming training pipelines and can be overridden using standard Hydra syntax.
+The flow is orchestrated by Prefect tasks, enabling retries, scheduling, and Prefect Cloud integration without code changes.
 
-## Kubernetes Deployment (Optional)
-- Apply the Kustomize overlay after configuring secrets: `kubectl apply -k k8s`
-- Default hostPorts expose:
-  - MLflow tracking: http://127.0.0.1:5001
-  - MinIO S3 API: http://127.0.0.1:30900
-  - MinIO console: http://127.0.0.1:30901
-- Update credentials in `k8s/minio.yaml` prior to any shared or production environment rollouts.
+### Offline analytics (`tickets.data.analyze`)
+- `OfflineMetricsAnalyzer` loads the offline Parquet snapshot, validates required columns, and computes:
+  - Response time percentiles (overall and by sentiment).
+  - Satisfaction score percentiles (overall and by sentiment).
+- Metrics are logged and saved back to S3/MinIO as JSON for downstream dashboards or alerting.
 
-## Development Checklist
-- Add regression tests under `tests/` as new features land; follow `test_<topic>.py` naming.
-- Keep modules small and typed—public functions already expose type hints and leverage `from __future__ import annotations`.
-- Use `mypy`, `ruff`, and `black` to enforce style/quality; configurations live in `pyproject.toml`.
-- Review `AGENTS.md` and `nogit-task.md` for contributor guidance and assignment context.
+## Modeling & Retrieval Roadmap
+- **Classical ML**: CatBoost/XGBoost training pipelines with Optuna/Bayesian optimization and feature importance tracking (config prototypes live under `conf/{catboost,xgboost}`).
+- **Deep learning**: Torch-based text encoders with DataLoader abstractions, early stopping, and scheduler support (`conf/dnn`).
+- **Hybrid retrieval**: Planned graph-enhanced RAG stack combining semantic search (Sentence Transformers), metadata filters, and success-aware re-ranking.
+- **Continual learning**: Agent feedback loops will push outcomes into an MLflow model registry and surface drift diagnostics.
 
-## Next Steps
-- Expand `tickets.data.clean` with domain-specific cleansing, enrichments, and SLA derivations.
-- Stand up analytics and modeling pipelines in new `tickets/analytics` modules, keeping CLI orchestration under `tickets.main`.
-- Introduce fixture datasets in `assets/` and corresponding tests to lock in expected flow outputs.
-- Document progress milestones in this README as additional components graduate from WIP to usable modules.
+## Observability & Logging
+- Loguru writes structured logs at the module level (console + rotating files in `logs/`).
+- MLflow within Docker Compose stores artifacts in MinIO (`s3://mlflow`); point training scripts to the container endpoint.
+- Planned extensions include Prometheus exporters, anomaly detection on ticket velocity/sentiment, and retrieval-failure alerts.
+
+## Quality & Tooling
+- Format and lint:
+  ```bash
+  uv run ruff check .
+  uv run ruff format .
+  ```
+- Static typing:
+  ```bash
+  uv run mypy src
+  ```
+- Tests:
+  ```bash
+  uv run pytest
+  ```
+- Target Python: 3.12 (enforced via pyproject).
+
+## Deployment Notes
+- **Docker Compose** (provided) bootstraps the local dependency stack. Add the application container when FastAPI services are ready.
+- **Docker images**: prefer multi-stage builds with `uv` or `pip wheel` stages; integrate health checks mirroring the Redis/MinIO probes.
+- **GitLab CI**: automate lint → type check → tests → image build/push → deployment promotion; reuse the commands above within CI jobs.
+- **Kubernetes**: manifests will live under `deploy/k8s` (planned) with Helm/Kustomize overlays for cluster rollouts.
+
+## Contribution Checklist
+- Keep modules functional, typed, and documented (`PEP 8`, `PEP 257`).
+- Favor pure functions and RORO patterns; avoid hidden mutations.
+- Persist intermediate datasets as Parquet and log S3/Redis interactions with contextual metadata.
+- Add pytest coverage for each new flow, utility, or schema.
+- Update this README and architecture docs as new components become production-ready.

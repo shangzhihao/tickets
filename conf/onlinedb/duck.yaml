@@ -1,3 +1,0 @@
-type: duckdb
-duck_db_file: data/duckdb/online.duckdb
-table_name: tickets

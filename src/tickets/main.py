@@ -1,14 +1,10 @@
-# src/ml_project/train.py
-import hydra
-from omegaconf import DictConfig, OmegaConf
 
-from .data.runner import Task, runner
+from .data.runner import runner
+from .schemas.tasks import Task
 
 
-@hydra.main(config_path="../../conf", config_name="config", version_base=None)
-def main(cfg: DictConfig)->None:
-    OmegaConf.set_readonly(cfg, True)
-    runner(cfg, Task.INGEST)
+def main()->None:
+    runner(Task.ANALYZE)
 
 if __name__ == "__main__":
     main()
