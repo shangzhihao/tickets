@@ -4,7 +4,7 @@ from .schemas.tasks import Task
 
 
 def main()->None:
-    runner(Task.ANALYZE)
+    runner(Task.CHECK)
 
 if __name__ == "__main__":
     main()

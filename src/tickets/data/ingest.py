@@ -6,19 +6,19 @@ import io
 
 import pandas as pd
 import redis
-from prefect import flow, task
+from prefect import task
 
 from ..utils.config_util import cfg
 from ..utils.io_util import data_logger, redis_pool, s3_client
 
 
-@flow
-def ingest()->None:
+def ingest() -> None:
     """Materialize bronze, offline, and online datasets in a single run."""
 
     df = bronze()
     df = offline(df)
     df = online(df)
+
 
 @task
 def bronze() -> pd.DataFrame:
@@ -35,8 +35,12 @@ def bronze() -> pd.DataFrame:
     buf = io.BytesIO()
     raw_df.to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
     buf.seek(0)
-    s3_client.upload_fileobj(buf, cfg.data.bucket, bronze_path,
-        ExtraArgs={"ContentType": "application/x-parquet"})
+    s3_client.upload_fileobj(
+        buf,
+        cfg.data.bucket,
+        bronze_path,
+        ExtraArgs={"ContentType": "application/x-parquet"},
+    )
     data_logger.info(f"{len(raw_df)} bronze records wrote to s3 parquet")
 
     return raw_df
@@ -44,6 +48,7 @@ def bronze() -> pd.DataFrame:
 
 def clean(df: pd.DataFrame) -> pd.DataFrame:
     return df.copy()
+
 
 @task
 def offline(df: pd.DataFrame | None) -> pd.DataFrame:
@@ -63,11 +68,16 @@ def offline(df: pd.DataFrame | None) -> pd.DataFrame:
     buf = io.BytesIO()
     offline_df.to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
     buf.seek(0)
-    s3_client.upload_fileobj(buf, cfg.data.bucket, offline_path,
-        ExtraArgs={"ContentType": "application/x-parquet"})
+    s3_client.upload_fileobj(
+        buf,
+        cfg.data.bucket,
+        offline_path,
+        ExtraArgs={"ContentType": "application/x-parquet"},
+    )
     data_logger.info(f"{len(offline_df)} offline records wrote to s3")
 
     return offline_df
+
 
 def make_online(df: pd.DataFrame) -> pd.DataFrame:
     """Return the most recent tickets, ordered by creation timestamp."""
@@ -85,6 +95,7 @@ def make_online(df: pd.DataFrame) -> pd.DataFrame:
     frame = frame.dropna(subset=["created_at"])
     return frame.head(num).reset_index(drop=True)
 
+
 @task
 def online(df: pd.DataFrame | None) -> pd.DataFrame:
     """Write an ordered, truncated dataset suitable for online serving."""
@@ -98,9 +109,10 @@ def online(df: pd.DataFrame | None) -> pd.DataFrame:
     else:
         offline_df = df.copy()
     online_df = make_online(offline_df)
-    cols = ['created_at', 'updated_at', 'resolved_at']
+    cols = ["created_at", "updated_at", "resolved_at"]
     online_df[cols] = online_df[cols].apply(
-        lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S%z"))
+        lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+    )
 
     r = redis.Redis(connection_pool=redis_pool)
     pipe = r.pipeline()
@@ -108,9 +120,8 @@ def online(df: pd.DataFrame | None) -> pd.DataFrame:
     records = online_df.to_dict(orient="records")
     for ticket in records:
         pipe.json().set(
-            name=ticket["ticket_id"],
-            path=path,
-            obj=ticket) # pyright: ignore[reportArgumentType]
+            name=ticket["ticket_id"], path=path, obj=ticket
+        )  # pyright: ignore[reportArgumentType]
     results = pipe.execute()
     written_count = sum(results)
     failed_count = len(results) - written_count
