@@ -28,12 +28,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = [
-    "mypy>=1.18.2",
-    "pytest>=8.4.2",
-    "ruff>=0.13.3",
-    "pandas-stubs>=2.3.0",
-]
+dev = []
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
