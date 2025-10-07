@@ -9,6 +9,12 @@ from typing import Final
 import pandas as pd
 from pandas.api.types import is_timedelta64_dtype
 
+from tickets.schemas.events import (
+    DataLoadOfflineEvent,
+    DataResTimeStatsEvent,
+    DataSatScoreStatsEvent,
+    DataStatsSaveEvent,
+)
 from tickets.schemas.metrics import (
     AnalysisRes,
     NumberMetric,
@@ -63,6 +69,16 @@ class OfflineMetricsAnalyzer:
         body = obj["Body"].read()
         offline_df = pd.read_parquet(io.BytesIO(body))
         data_logger.info("Loaded {} offline records from S3.", offline_df.shape[0])
+        DataLoadOfflineEvent(
+            feature_group="offline_ticket_metrics",
+            storage_path=OFFLINE_PATH,
+            records_loaded=int(offline_df.shape[0]),
+            cache_hit=False,
+            metadata={
+                "bucket": BUCKET_NAME,
+                "columns": list(offline_df.columns),
+            },
+        ).emit()
         return cls(offline_df)
 
     def save_metrics_to_s3(
@@ -82,6 +98,17 @@ class OfflineMetricsAnalyzer:
         data_logger.info(
             f"Persisted offline analysis metrics to S3 at key {METRICS_PATH}."
         )
+        DataStatsSaveEvent(
+            destination_uri=METRICS_PATH,
+            metric_names=[
+                "res_time_all",
+                "sat_score_all",
+                "res_time_by_senti",
+                "sat_score_by_senti",
+            ],
+            records_written=1,
+            metadata={"bucket": BUCKET_NAME},
+        ).emit()
 
     @staticmethod
     def _build_timedelta_metric(series: pd.Series) -> TimedeltaMetric:
@@ -206,6 +233,24 @@ class OfflineMetricsAnalyzer:
         sat_score_all = self.sat_score()
         res_time_by_senti = self.res_time_by_senti()
         sat_score_by_senti = self.sat_score_by_senti()
+
+        DataResTimeStatsEvent(
+            percentile_values={
+                key: value.total_seconds()
+                for key, value in res_time_all.model_dump().items()
+            },
+            records_aggregated=int(self.df[RES_TIME_COLUMN].dropna().shape[0]),
+            metadata={"sentiment_segments": len(res_time_by_senti)},
+        ).emit()
+
+        DataSatScoreStatsEvent(
+            average_score=float(sat_score_all.avg),
+            records_aggregated=int(self.df[SAT_SCORE_COLUMN].dropna().shape[0]),
+            metadata={
+                "sentiment_segments": len(sat_score_by_senti),
+                "percentiles": sat_score_all.model_dump(),
+            },
+        ).emit()
 
         self.analysis_res = AnalysisRes(
             res_time_all=res_time_all,

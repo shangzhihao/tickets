@@ -15,7 +15,7 @@ from omegaconf import DictConfig
 
 from .config_util import cfg
 
-MODULES: Final[tuple[str, ...]] = ("api", "data", "ml")
+MODULES: Final[tuple[str, ...]] = ("api", "data", "ml", "event")
 
 
 def _module_filter(target: str, record: dict[str, object]) -> bool:
@@ -72,6 +72,8 @@ module_loggers = _configure_module_loggers(cfg)
 data_logger = module_loggers["data"]
 ml_logger = module_loggers["ml"]
 api_logger = module_loggers["api"]
+event_logger = module_loggers["event"]
+
 
 redis_pool: Final[redis.ConnectionPool] = redis.ConnectionPool(
     host=cfg.redis_host,
