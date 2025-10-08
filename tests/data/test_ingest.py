@@ -42,9 +42,9 @@ class _FakeRedisClient:
 
 
 @pytest.fixture()
-def ingest_mod(monkeypatch: pytest.MonkeyPatch) -> Generator[
-    tuple[ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]], None, None
-]:
+def ingest_mod(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[tuple[ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]], None, None]:
     """Import tickets.data.ingest with patched IO dependencies for unit testing."""
 
     module = importlib.import_module("tickets.data.ingest")
@@ -82,9 +82,7 @@ def ingest_mod(monkeypatch: pytest.MonkeyPatch) -> Generator[
 
 
 def test_bronze_reads_raw_json_and_persists_parquet(
-    ingest_mod: tuple[
-        ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]
-    ],
+    ingest_mod: tuple[ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]],
 ) -> None:
     module, cfg_stub, fake_s3, fake_logger, _ = ingest_mod
 
@@ -113,9 +111,7 @@ def test_bronze_reads_raw_json_and_persists_parquet(
 
 
 def test_offline_uses_provided_dataframe_and_clean_hook(
-    ingest_mod: tuple[
-        ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]
-    ],
+    ingest_mod: tuple[ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module, cfg_stub, fake_s3, fake_logger, _ = ingest_mod
@@ -149,9 +145,7 @@ def test_offline_uses_provided_dataframe_and_clean_hook(
 
 
 def test_offline_reads_bronze_snapshot_when_upstream_missing(
-    ingest_mod: tuple[
-        ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]
-    ],
+    ingest_mod: tuple[ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module, cfg_stub, fake_s3, fake_logger, _ = ingest_mod
@@ -180,9 +174,7 @@ def test_offline_reads_bronze_snapshot_when_upstream_missing(
 
 
 def test_make_online_orders_by_timestamp_and_limits_rows(
-    ingest_mod: tuple[
-        ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]
-    ],
+    ingest_mod: tuple[ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]],
 ) -> None:
     module, cfg_stub, _, _, _ = ingest_mod
     cfg_stub.data.num_online = 2
@@ -211,9 +203,7 @@ def test_make_online_orders_by_timestamp_and_limits_rows(
 
 
 def test_make_online_requires_created_at_column(
-    ingest_mod: tuple[
-        ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]
-    ],
+    ingest_mod: tuple[ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]],
 ) -> None:
     module, _, _, _, _ = ingest_mod
 
@@ -222,9 +212,7 @@ def test_make_online_requires_created_at_column(
 
 
 def test_make_online_validates_positive_row_budget(
-    ingest_mod: tuple[
-        ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]
-    ],
+    ingest_mod: tuple[ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]],
 ) -> None:
     module, cfg_stub, _, _, _ = ingest_mod
     cfg_stub.data.num_online = 0
@@ -238,9 +226,7 @@ def test_make_online_validates_positive_row_budget(
 
 
 def test_online_serializes_records_and_writes_via_pipeline(
-    ingest_mod: tuple[
-        ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]
-    ],
+    ingest_mod: tuple[ModuleType, SimpleNamespace, Mock, Mock, list[_FakeRedisClient]],
 ) -> None:
     module, cfg_stub, _, fake_logger, redis_clients = ingest_mod
     fake_logger.reset_mock()

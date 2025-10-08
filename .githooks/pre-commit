@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+printf 'running ruff format...\n'
+uv run ruff format
 printf 'running ruff check...\n'
 uv run ruff check
+printf 'running mypy...\n'
+uv run mypy .

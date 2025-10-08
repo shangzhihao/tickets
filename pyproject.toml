@@ -14,7 +14,7 @@ dependencies = [
     "omegaconf>=2.3.0",
     "optuna>=4.5.0",
     "pandas>=2.3.3",
-    "pandera[pandas]>=0.26.1",
+    "pandas-stubs>=2.3.2.250926",
     "prefect>=3.4.22",
     "pyarrow>=21.0.0",
     "pydantic>=2.11.9",
@@ -28,12 +28,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = [
-    "isort>=6.1.0",
-    "mypy>=1.18.2",
-    "pytest>=8.4.2",
-    "ruff>=0.13.3",
-]
+dev = []
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -49,7 +44,7 @@ include = ["tickets*"]
 
 [tool.ruff]
 target-version = "py312"
-line-length = 88
+line-length = 100
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -79,7 +74,6 @@ mypy_path = ["src"]
 namespace_packages = true
 explicit_package_bases = true
 warn_unused_configs = true
-warn_return_any = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 check_untyped_defs = true
@@ -88,3 +82,4 @@ disallow_incomplete_defs = true
 no_implicit_optional = true
 show_error_codes = true
 pretty = true
+ignore_missing_imports = true

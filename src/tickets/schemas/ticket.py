@@ -65,9 +65,7 @@ class Environment(str, Enum):
 
 
 class EscalationReason(str, Enum):
-    COMPLEX_TECHNICAL_ISSUE_REQUIRING_SPECIALIST = (
-        "Complex technical issue requiring specialist"
-    )
+    COMPLEX_TECHNICAL_ISSUE_REQUIRING_SPECIALIST = "Complex technical issue requiring specialist"
     CUSTOMER_REQUESTED_ESCALATION = "Customer requested escalation"
     HIGH_PRIORITY_CUSTOMER = "High priority customer"
     MULTIPLE_FAILED_RESOLUTION_ATTEMPTS = "Multiple failed resolution attempts"
@@ -219,4 +217,3 @@ class Ticket(BaseModel):
     after_hours: bool
     language: Language
     region: Region
-

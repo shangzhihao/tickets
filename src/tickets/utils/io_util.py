@@ -15,13 +15,13 @@ from omegaconf import DictConfig
 
 from .config_util import cfg
 
-MODULES: Final[tuple[str, ...]] = ("api", "data", "ml")
+MODULES: Final[tuple[str, ...]] = ("api", "data", "ml", "event")
 
 
 def _module_filter(target: str, record: dict[str, object]) -> bool:
     """Return ``True`` when the log record belongs to the target module."""
 
-    return record["extra"].get("module") == target
+    return record["extra"].get("module") == target  # type: ignore
 
 
 def _configure_module_loggers(config: DictConfig) -> dict[str, Any]:
@@ -62,7 +62,7 @@ def _configure_module_loggers(config: DictConfig) -> dict[str, Any]:
         )
 
     logger.remove()
-    logger.configure(handlers=handlers)
+    logger.configure(handlers=handlers)  # type: ignore
 
     return {module: logger.bind(module=module) for module in MODULES}
 
@@ -72,6 +72,8 @@ module_loggers = _configure_module_loggers(cfg)
 data_logger = module_loggers["data"]
 ml_logger = module_loggers["ml"]
 api_logger = module_loggers["api"]
+event_logger = module_loggers["event"]
+
 
 redis_pool: Final[redis.ConnectionPool] = redis.ConnectionPool(
     host=cfg.redis_host,

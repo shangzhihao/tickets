@@ -5,7 +5,7 @@ from collections.abc import Sequence
 
 from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 
 def gather_cli_overrides(args: Sequence[str]) -> list[str]:
@@ -15,7 +15,7 @@ def gather_cli_overrides(args: Sequence[str]) -> list[str]:
 
     override_tokens: list[str] = []
     for token in args:
-        if "=" not in token and not token.startswith(('+', '~', 'hydra.')):
+        if "=" not in token and not token.startswith(("+", "~", "hydra.")):
             continue
         override_tokens.append(token)
     return override_tokens
@@ -25,7 +25,7 @@ def load_config(
     config_dir: str,
     config_name: str,
     overrides: Sequence[str] | None = None,
-):
+) -> DictConfig:
     """Load a Hydra configuration with optional override parameters."""
     override_list = list(overrides or [])
 

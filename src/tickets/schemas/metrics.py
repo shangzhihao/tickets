@@ -28,14 +28,10 @@ def _stringify(value: Any) -> str:
 class TimedeltaMetric(BaseModel):
     """Percentile summary statistics computed for timedelta metrics."""
 
-    avg: timedelta = Field(...,
-        description="Arithmetic mean across aggregated samples.")
-    p50: timedelta = Field(...,
-        description="Median (50th percentile) of the distribution.")
-    P75: timedelta = Field(...,
-        description="75th percentile of the distribution.")
-    p90: timedelta = Field(...,
-        description="90th percentile of the distribution.")
+    avg: timedelta = Field(..., description="Arithmetic mean across aggregated samples.")
+    p50: timedelta = Field(..., description="Median (50th percentile) of the distribution.")
+    P75: timedelta = Field(..., description="75th percentile of the distribution.")
+    p90: timedelta = Field(..., description="90th percentile of the distribution.")
 
 
 class NumberMetric(BaseModel):
@@ -48,10 +44,8 @@ class NumberMetric(BaseModel):
 class ResponseTimeStats(BaseModel):
     """Response time distribution and volume for a ticket segment."""
 
-    volume: float = Field(...,
-        description="Number of tickets represented in the segment.")
-    res_time: TimedeltaMetric = Field(...,
-        description="Response time summary statistics.")
+    volume: float = Field(..., description="Number of tickets represented in the segment.")
+    res_time: TimedeltaMetric = Field(..., description="Response time summary statistics.")
 
     def to_dict(self) -> dict[str, str]:
         """Flatten response-time metrics into column-value pairs."""
@@ -60,8 +54,7 @@ class ResponseTimeStats(BaseModel):
         payload.update(
             {
                 f"res_time.{metric_key}": _stringify(metric_value)
-                for metric_key, metric_value in self.res_time.
-                model_dump(mode="python").items()
+                for metric_key, metric_value in self.res_time.model_dump(mode="python").items()
             }
         )
         return payload
@@ -70,10 +63,8 @@ class ResponseTimeStats(BaseModel):
 class SatisfactionScoreStats(BaseModel):
     """Satisfaction score distribution and volume for a ticket segment."""
 
-    volume: float = Field(...,
-        description="Number of tickets represented in the segment.")
-    sat_score: NumberMetric = Field(...,
-        description="Satisfaction score summary statistics.")
+    volume: float = Field(..., description="Number of tickets represented in the segment.")
+    sat_score: NumberMetric = Field(..., description="Satisfaction score summary statistics.")
 
     def to_dict(self) -> dict[str, str]:
         """Flatten satisfaction-score metrics into column-value pairs."""
@@ -82,8 +73,7 @@ class SatisfactionScoreStats(BaseModel):
         payload.update(
             {
                 f"sat_score.{metric_key}": _stringify(metric_value)
-                for metric_key, metric_value in self.sat_score.
-                model_dump(mode="python").items()
+                for metric_key, metric_value in self.sat_score.model_dump(mode="python").items()
             }
         )
         return payload
@@ -115,33 +105,31 @@ class AnalysisRes(BaseModel):
         payload.update(
             {
                 f"res_time_all.{metric_key}": _stringify(metric_value)
-                for metric_key, metric_value in self.res_time_all.
-                model_dump(mode="python").items()
+                for metric_key, metric_value in self.res_time_all.model_dump(mode="python").items()
             }
         )
         payload.update(
             {
                 f"sat_score_all.{metric_key}": _stringify(metric_value)
-                for metric_key, metric_value in self.sat_score_all.
-                model_dump(mode="python").items()
+                for metric_key, metric_value in self.sat_score_all.model_dump(mode="python").items()
             }
         )
 
-        for sentiment, stats in self.res_time_by_senti.items():
+        for sentiment, time_stats in self.res_time_by_senti.items():
             base_key = f"res_time_by_senti.{sentiment.value}"
             payload.update(
                 {
                     f"{base_key}.{metric_key}": metric_value
-                    for metric_key, metric_value in stats.to_dict().items()
+                    for metric_key, metric_value in time_stats.to_dict().items()
                 }
             )
 
-        for sentiment, stats in self.sat_score_by_senti.items():
+        for sentiment, score_stats in self.sat_score_by_senti.items():
             base_key = f"sat_score_by_senti.{sentiment.value}"
             payload.update(
                 {
                     f"{base_key}.{metric_key}": metric_value
-                    for metric_key, metric_value in stats.to_dict().items()
+                    for metric_key, metric_value in score_stats.to_dict().items()
                 }
             )
 

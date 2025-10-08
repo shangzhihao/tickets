@@ -30,9 +30,7 @@ def analyze_mod(monkeypatch: pytest.MonkeyPatch) -> Generator[ModuleType, None, 
     seed_buffer.seek(0)
 
     fake_s3 = Mock()
-    fake_s3.get_object.side_effect = (
-        lambda *_, **__: {"Body": io.BytesIO(seed_buffer.getvalue())}
-    )
+    fake_s3.get_object.side_effect = lambda *_, **__: {"Body": io.BytesIO(seed_buffer.getvalue())}
     fake_s3.put_object.return_value = None
     monkeypatch.setattr("boto3.client", lambda *_, **__: fake_s3)
 
