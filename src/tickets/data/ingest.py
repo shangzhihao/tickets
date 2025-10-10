@@ -7,7 +7,7 @@ from time import perf_counter_ns
 
 import pandas as pd
 import redis
-from prefect import task
+from prefect import flow, task
 
 from ..schemas.events import (
     DataLoadBronzeEvent,
@@ -18,7 +18,7 @@ from ..schemas.events import (
     DataSaveOnlineEvent,
 )
 from ..utils.config_util import cfg
-from ..utils.io_util import data_logger, redis_pool, s3_client
+from ..utils.io_util import data_logger, read_df_from_s3, redis_pool, s3_client, save_df_to_s3
 
 
 def _duration_ms(start_ns: int) -> int:
@@ -34,169 +34,158 @@ def _s3_uri(key: str) -> str:
     return f"s3://{cfg.data.bucket}/{key}"
 
 
+@flow
 def ingest() -> None:
-    """Materialize bronze, offline, and online datasets in a single run."""
-
-    df = bronze()
-    df = offline(df)
-    df = online(df)
-
-
-@task
-def bronze() -> pd.DataFrame:
-    """Read raw JSON tickets and store them in S3 as a bronze parquet file."""
-
-    raw_path = cfg.data.raw_file
-    bronze_path = cfg.data.bronze_file
-    # Read the raw JSON payload and hydrate a dataframe.
-    read_start = perf_counter_ns()
-    obj = s3_client.get_object(Bucket=cfg.data.bucket, Key=raw_path)
-    body = obj["Body"].read()
-    raw_df = pd.read_json(io.BytesIO(body), lines=False)
-    DataLoadRawEvent(
-        source_uri=_s3_uri(raw_path),
-        records_loaded=len(raw_df),
-        duration_ms=_duration_ms(read_start),
-    ).emit()
-    data_logger.info(f"{len(raw_df)} raw records read from s3 json")
-    # Persist the bronze snapshot back to S3 as parquet for downstream steps.
-    write_start = perf_counter_ns()
-    buf = io.BytesIO()
-    raw_df.to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
-    buf.seek(0)
-    s3_client.upload_fileobj(
-        buf,
-        cfg.data.bucket,
-        bronze_path,
-        ExtraArgs={"ContentType": "application/x-parquet"},
-    )
-    DataSaveBronzeEvent(
-        table_uri=_s3_uri(bronze_path),
-        records_written=len(raw_df),
-        duration_ms=_duration_ms(write_start),
-    ).emit()
-    data_logger.info(f"{len(raw_df)} bronze records wrote to s3 parquet")
-
-    return raw_df
+    ingestion = DataIngestion()
+    ingestion.make_bronze()
+    ingestion.make_offline()
+    ingestion.make_online()
 
 
-def clean(df: pd.DataFrame) -> pd.DataFrame:
-    return df.copy()
+class DataIngestion:
+    def __init__(self) -> None:
+        self.raw_data: pd.DataFrame = pd.DataFrame()
+        self.bronze_data: pd.DataFrame = pd.DataFrame()
+        self.offline_data: pd.DataFrame = pd.DataFrame()
+        self.online_data: pd.DataFrame = pd.DataFrame()
+        self.raw_data_path = cfg.data.raw_file
+        self.bronze_data_path = cfg.data.bronze_file
+        self.offline_data_path = cfg.data.offline_file
 
-
-@task
-def offline(df: pd.DataFrame | None) -> pd.DataFrame:
-    """Persist a cleaned bronze dataset into the offline store."""
-    bronze_path = cfg.data.bronze_file
-    offline_path = cfg.data.offline_file
-    if df is None:
-        # Reload the bronze parquet snapshot if the upstream task was skipped.
-        obj = s3_client.get_object(Bucket=cfg.data.bucket, Key=bronze_path)
-        body = obj["Body"].read()
-        bronze_df = pd.read_parquet(io.BytesIO(body))
-        data_logger.info(f"{len(bronze_df)} bronze records read from s3")
-    else:
-        bronze_df = df.copy()
-    DataLoadBronzeEvent(
-        table_uri=_s3_uri(bronze_path),
-        records_loaded=len(bronze_df),
-    ).emit()
-    offline_df = clean(bronze_df)
-    # Write the cleaned dataset to the offline S3 location.
-    write_start = perf_counter_ns()
-    buf = io.BytesIO()
-    offline_df.to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
-    buf.seek(0)
-    s3_client.upload_fileobj(
-        buf,
-        cfg.data.bucket,
-        offline_path,
-        ExtraArgs={"ContentType": "application/x-parquet"},
-    )
-    DataSaveOfflineEvent(
-        feature_group=f"{cfg.project_name}_offline",
-        storage_path=_s3_uri(offline_path),
-        records_written=len(offline_df),
-        feature_names=list(offline_df.columns),
-        metadata={"write_duration_ms": _duration_ms(write_start)},
-    ).emit()
-    data_logger.info(f"{len(offline_df)} offline records wrote to s3")
-
-    return offline_df
-
-
-def make_online(df: pd.DataFrame) -> pd.DataFrame:
-    """Return the most recent tickets, ordered by creation timestamp."""
-
-    if "created_at" not in df.columns:
-        raise KeyError("'created_at' column is required to order the online dataset.")
-
-    num = getattr(cfg.data, "num_online", None)
-    if not isinstance(num, int) or num <= 0:
-        raise ValueError("'data.num_online' must be a positive integer")
-
-    frame = df.copy()
-    frame["created_at"] = pd.to_datetime(frame["created_at"], utc=True, errors="coerce")
-    frame = frame.sort_values("created_at", ascending=False, kind="mergesort")
-    frame = frame.dropna(subset=["created_at"])
-    return frame.head(num).reset_index(drop=True)
-
-
-@task
-def online(df: pd.DataFrame | None) -> pd.DataFrame:
-    """Write an ordered, truncated dataset suitable for online serving."""
-    offline_path = cfg.data.offline_file
-
-    if df is None:
+    @task
+    def make_bronze(self) -> pd.DataFrame:
+        """Read raw JSON tickets and store them in S3 as a bronze parquet file."""
         read_start = perf_counter_ns()
-        obj = s3_client.get_object(Bucket=cfg.data.bucket, Key=offline_path)
-        body = obj["Body"].read()
-        offline_df = pd.read_parquet(io.BytesIO(body))
-        data_logger.info(f"{len(offline_df)} offline records read to s3")
-        DataLoadOfflineEvent(
-            feature_group=f"{cfg.project_name}_offline",
-            storage_path=_s3_uri(offline_path),
-            records_loaded=len(offline_df),
-            cache_hit=False,
-            metadata={
-                "read_duration_ms": _duration_ms(read_start),
-            },
+        if self.raw_data.empty:
+            self.raw_data = read_df_from_s3(self.raw_data_path)
+        DataLoadRawEvent(
+            source_uri=_s3_uri(self.raw_data_path),
+            records_loaded=len(self.raw_data),
+            duration_ms=_duration_ms(read_start),
         ).emit()
-    else:
-        offline_df = df.copy()
-    online_df = make_online(offline_df)
-    cols = ["created_at", "updated_at", "resolved_at"]
-    online_df[cols] = online_df[cols].apply(lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S%z"))
+        data_logger.info(f"{len(self.raw_data)} raw records read from s3 json")
 
-    r = redis.Redis(connection_pool=redis_pool)
-    pipe = r.pipeline()
-    path = "$"
-    records = online_df.to_dict(orient="records")
-    for ticket in records:
-        pipe.json().set(
-            name=ticket["ticket_id"],
-            path=path,
-            obj=ticket,  # type: ignore
+        # Persist the bronze snapshot back to S3 as parquet for downstream steps.
+        self.bronze_data = self.raw_to_bronze()
+        write_start = perf_counter_ns()
+        buf = io.BytesIO()
+        self.bronze_data.to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
+        buf.seek(0)
+        s3_client.upload_fileobj(
+            buf,
+            cfg.data.bucket,
+            self.bronze_data_path,
+            ExtraArgs={"ContentType": "application/x-parquet"},
         )
-    results = pipe.execute()
-    written_count = sum(results)
-    failed_count = len(results) - written_count
-    data_logger.info("Records written to redis: {}", written_count)
-    if failed_count:
-        data_logger.warning("Records failed to write to redis: {}", failed_count)
-    entity_keys = [
-        str(ticket["ticket_id"])
-        for ticket in records
-        if isinstance(ticket.get("ticket_id"), (str, int))
-    ]
-    DataSaveOnlineEvent(
-        feature_group=f"{cfg.project_name}_online",
-        entity_keys=entity_keys,
-        records_written=written_count,
-        ttl_seconds=None,
-        metadata={
-            "redis_path": path,
-            "failed_count": failed_count,
-        },
-    ).emit(level="WARNING" if failed_count else "INFO")
-    return online_df
+        DataSaveBronzeEvent(
+            table_uri=_s3_uri(self.bronze_data_path),
+            records_written=len(self.bronze_data),
+            duration_ms=_duration_ms(write_start),
+        ).emit()
+        data_logger.info(f"{len(self.bronze_data)} bronze records wrote to s3 parquet")
+
+        return self.bronze_data
+
+    def raw_to_bronze(self) -> pd.DataFrame:
+        self.bronze_data = self.raw_data.copy()
+        return self.bronze_data
+
+    def bronze_to_offline(self) -> pd.DataFrame:
+        return self.bronze_data.copy()
+
+    @task
+    def make_offline(self) -> pd.DataFrame:
+        """Persist a cleaned bronze dataset into the offline store."""
+        if self.bronze_data.empty:
+            self.bronze_data = read_df_from_s3(self.bronze_data_path)
+            data_logger.info(f"{len(self.bronze_data)} bronze records read from s3")
+
+            DataLoadBronzeEvent(
+                table_uri=_s3_uri(self.bronze_data_path),
+                records_loaded=len(self.bronze_data),
+            ).emit()
+        self.offline_data = self.bronze_to_offline()
+        # Write the cleaned dataset to the offline S3 location.
+        write_start = perf_counter_ns()
+        save_df_to_s3(self.offline_data, self.offline_data_path)
+
+        DataSaveOfflineEvent(
+            feature_group=f"{cfg.project_name}_offline",
+            storage_path=_s3_uri(self.offline_data_path),
+            records_written=len(self.offline_data),
+            feature_names=list(self.offline_data.columns),
+            metadata={"write_duration_ms": _duration_ms(write_start)},
+        ).emit()
+        data_logger.info(f"{len(self.offline_data)} offline records wrote to s3")
+
+        return self.offline_data
+
+    def off_to_online(self) -> pd.DataFrame:
+        if "created_at" not in self.offline_data.columns:
+            raise KeyError("'created_at' column is required to order the online dataset.")
+
+        num = getattr(cfg.data, "num_online", None)
+        if not isinstance(num, int) or num <= 0:
+            raise ValueError("'data.num_online' must be a positive integer")
+
+        frame = self.offline_data.copy()
+        frame["created_at"] = pd.to_datetime(frame["created_at"], utc=True, errors="coerce")
+        frame = frame.sort_values("created_at", ascending=False, kind="mergesort")
+        frame = frame.dropna(subset=["created_at"])
+        return frame.head(num).reset_index(drop=True)
+
+    @task
+    def make_online(self) -> pd.DataFrame:
+        """Write an ordered, truncated dataset suitable for online serving."""
+        if self.offline_data.empty:
+            read_start = perf_counter_ns()
+            self.offline_data = read_df_from_s3(self.offline_data_path)
+            data_logger.info(f"{len(self.offline_data)} offline records read to s3")
+            DataLoadOfflineEvent(
+                feature_group=f"{cfg.project_name}_offline",
+                storage_path=_s3_uri(self.offline_data_path),
+                records_loaded=len(self.offline_data),
+                cache_hit=False,
+                metadata={
+                    "read_duration_ms": _duration_ms(read_start),
+                },
+            ).emit()
+
+        self.online_data = self.off_to_online()
+        cols = ["created_at", "updated_at", "resolved_at"]
+        self.online_data[cols] = self.online_data[cols].apply(
+            lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+        )
+
+        r = redis.Redis(connection_pool=redis_pool)
+        pipe = r.pipeline()
+        path = "$"
+        records = self.online_data.to_dict(orient="records")
+        for ticket in records:
+            pipe.json().set(
+                name=ticket["ticket_id"],
+                path=path,
+                obj=ticket,
+            )
+        results = pipe.execute()
+        written_count = sum(results)
+        failed_count = len(results) - written_count
+        data_logger.info("Records written to redis: {}", written_count)
+        if failed_count:
+            data_logger.warning("Records failed to write to redis: {}", failed_count)
+        entity_keys = [
+            str(ticket["ticket_id"])
+            for ticket in records
+            if isinstance(ticket.get("ticket_id"), str | int)
+        ]
+        DataSaveOnlineEvent(
+            feature_group=f"{cfg.project_name}_online",
+            entity_keys=entity_keys,
+            records_written=written_count,
+            ttl_seconds=None,
+            metadata={
+                "redis_path": path,
+                "failed_count": failed_count,
+            },
+        ).emit(level="WARNING" if failed_count else "INFO")
+        return self.online_data

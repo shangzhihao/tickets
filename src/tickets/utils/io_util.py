@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import io
 import sys
 from functools import partial
 from pathlib import Path
 from typing import Any, Final
 
 import boto3
+import pandas as pd
 import redis
 from botocore.client import BaseClient, Config
 from loguru import logger
@@ -62,7 +64,7 @@ def _configure_module_loggers(config: DictConfig) -> dict[str, Any]:
         )
 
     logger.remove()
-    logger.configure(handlers=handlers)  # type: ignore
+    logger.configure(handlers=handlers)
 
     return {module: logger.bind(module=module) for module in MODULES}
 
@@ -92,5 +94,26 @@ s3_client: Final[BaseClient] = boto3.client(
     config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
     region_name="us-east-1",
 )
+
+
+def read_df_from_s3(data_path: str) -> pd.DataFrame:
+    # Read the raw JSON payload and hydrate a dataframe.
+    obj = s3_client.get_object(Bucket=cfg.data.bucket, Key=data_path)
+    body = obj["Body"].read()
+    df = pd.read_json(io.BytesIO(body), lines=False)
+    return df
+
+
+def save_df_to_s3(df: pd.DataFrame, data_path: str) -> None:
+    buf = io.BytesIO()
+    df.to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
+    buf.seek(0)
+    s3_client.upload_fileobj(
+        buf,
+        cfg.data.bucket,
+        data_path,
+        ExtraArgs={"ContentType": "application/x-parquet"},
+    )
+
 
 __all__ = ["data_logger", "ml_logger", "api_logger", "redis_pool", "s3_client"]

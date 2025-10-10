@@ -28,7 +28,9 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = []
+dev = [
+    "pyright>=1.1.406",
+]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

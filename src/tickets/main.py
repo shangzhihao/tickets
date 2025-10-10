@@ -3,7 +3,9 @@ from .schemas.tasks import Task
 
 
 def main() -> None:
-    runner(Task.CHECK)
+    tasks = [Task.INGEST, Task.CHECK, Task.ANALYZE]
+    for task in tasks:
+        runner(task)
 
 
 if __name__ == "__main__":
