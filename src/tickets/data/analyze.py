@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 from datetime import timedelta
 from typing import Final
 
@@ -10,7 +9,6 @@ import pandas as pd
 from pandas.api.types import is_timedelta64_dtype
 
 from tickets.schemas.events import (
-    DataLoadOfflineEvent,
     DataResTimeStatsEvent,
     DataSatScoreStatsEvent,
     DataStatsSaveEvent,
@@ -25,7 +23,8 @@ from tickets.schemas.metrics import (
 from tickets.schemas.ticket import CustomerSentiment
 
 from ..utils.config_util import cfg
-from ..utils.io_util import data_logger, s3_client
+from ..utils.io_util import load_df_from_s3, s3_client
+from ..utils.log_util import data_logger
 
 SENTIMENT_COLUMN: Final[str] = "customer_sentiment"
 RESOLVED_AT_COLUMN: Final[str] = "resolved_at"
@@ -59,20 +58,8 @@ class OfflineMetricsAnalyzer:
     def from_s3(cls) -> OfflineMetricsAnalyzer:
         """Load the offline ticket dataframe from S3 and return an analyzer instance."""
 
-        obj = s3_client.get_object(Bucket=cfg.data.bucket, Key=cfg.data.offline_file)
-        body = obj["Body"].read()
-        offline_df = pd.read_parquet(io.BytesIO(body))
+        offline_df = load_df_from_s3(data_path=cfg.data.offline_file, group=__file__)
         data_logger.info("Loaded {} offline records from S3.", offline_df.shape[0])
-        DataLoadOfflineEvent(
-            feature_group="offline_ticket_metrics",
-            storage_path=cfg.data.offline_file,
-            records_loaded=int(offline_df.shape[0]),
-            cache_hit=False,
-            metadata={
-                "bucket": cfg.data.bucket,
-                "columns": list(offline_df.columns),
-            },
-        ).emit()
         return cls(offline_df)
 
     def save_metrics_to_s3(

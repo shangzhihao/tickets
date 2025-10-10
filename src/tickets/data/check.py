@@ -9,7 +9,6 @@ from prefect import task
 from pydantic import ValidationError
 
 from tickets.schemas.events import (
-    DataLoadOfflineEvent,
     DataQaBusinessEvent,
     DataQaCleanedEvent,
     DataQaMissingEvent,
@@ -21,7 +20,8 @@ from tickets.schemas.events import (
 from ..schemas.data_quality import DataQualityReport
 from ..schemas.ticket import Ticket
 from ..utils.config_util import cfg
-from ..utils.io_util import data_logger, read_offline_from_s3
+from ..utils.io_util import load_df_from_s3
+from ..utils.log_util import data_logger
 
 MAX_VIOLATIONS = 5
 
@@ -30,17 +30,7 @@ class DataQuality:
     def __init__(self, df: pd.DataFrame | None = None) -> None:
         self._df: pd.DataFrame
         if df is None:
-            self._df = read_offline_from_s3()
-            DataLoadOfflineEvent(
-                feature_group="offline_ticket_quality",
-                storage_path=cfg.data.offline_file,
-                records_loaded=int(self._df.shape[0]),
-                cache_hit=False,
-                metadata={
-                    "bucket": cfg.data.bucket,
-                    "columns": list(self._df.columns),
-                },
-            ).emit()
+            self._df = load_df_from_s3(cfg.data.offline_file, group=__file__)
         else:
             self._df = df
         self.invalid_schema_num = 0
