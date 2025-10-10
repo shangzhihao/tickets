@@ -3,9 +3,12 @@ from __future__ import annotations
 import sys
 from collections.abc import Sequence
 
+from dotenv import load_dotenv
 from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
+
+load_dotenv()
 
 
 def gather_cli_overrides(args: Sequence[str]) -> list[str]:
