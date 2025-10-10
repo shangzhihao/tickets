@@ -27,10 +27,6 @@ from tickets.schemas.ticket import CustomerSentiment
 from ..utils.config_util import cfg
 from ..utils.io_util import data_logger, s3_client
 
-OFFLINE_PATH: Final[str] = cfg.data.offline_file
-BUCKET_NAME: Final[str] = cfg.data.bucket
-METRICS_PATH: Final[str] = cfg.data.metrics_file
-
 SENTIMENT_COLUMN: Final[str] = "customer_sentiment"
 RESOLVED_AT_COLUMN: Final[str] = "resolved_at"
 CREATED_AT_COLUMN: Final[str] = "created_at"
@@ -63,17 +59,17 @@ class OfflineMetricsAnalyzer:
     def from_s3(cls) -> OfflineMetricsAnalyzer:
         """Load the offline ticket dataframe from S3 and return an analyzer instance."""
 
-        obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=OFFLINE_PATH)
+        obj = s3_client.get_object(Bucket=cfg.data.bucket, Key=cfg.data.offline_file)
         body = obj["Body"].read()
         offline_df = pd.read_parquet(io.BytesIO(body))
         data_logger.info("Loaded {} offline records from S3.", offline_df.shape[0])
         DataLoadOfflineEvent(
             feature_group="offline_ticket_metrics",
-            storage_path=OFFLINE_PATH,
+            storage_path=cfg.data.offline_file,
             records_loaded=int(offline_df.shape[0]),
             cache_hit=False,
             metadata={
-                "bucket": BUCKET_NAME,
+                "bucket": cfg.data.bucket,
                 "columns": list(offline_df.columns),
             },
         ).emit()
@@ -87,15 +83,17 @@ class OfflineMetricsAnalyzer:
         if self.analysis_res is None:
             self.analyze()
         s3_client.put_object(
-            Bucket=BUCKET_NAME,
-            Key=METRICS_PATH,
+            Bucket=cfg.data.bucket,
+            Key=cfg.data.metrics_file,
             Body=self.analysis_res.model_dump_json(),
             ContentType="application/json",
             # Optional hardening:
         )
-        data_logger.info(f"Persisted offline analysis metrics to S3 at key {METRICS_PATH}.")
+        data_logger.info(
+            "Persisted offline analysis metrics" f"to S3 at key {cfg.data.metrics_file}."
+        )
         DataStatsSaveEvent(
-            destination_uri=METRICS_PATH,
+            destination_uri=cfg.data.metrics_file,
             metric_names=[
                 "res_time_all",
                 "sat_score_all",
@@ -103,7 +101,7 @@ class OfflineMetricsAnalyzer:
                 "sat_score_by_senti",
             ],
             records_written=1,
-            metadata={"bucket": BUCKET_NAME},
+            metadata={"bucket": cfg.data.bucket},
         ).emit()
 
     @staticmethod
@@ -176,7 +174,7 @@ class OfflineMetricsAnalyzer:
         metrics: dict[CustomerSentiment, ResponseTimeStats] = {}
         for sentiment_value, segment in grouped:
             try:
-                sentiment = CustomerSentiment(sentiment_value)
+                sentiment = CustomerSentiment(str(sentiment_value))
             except ValueError:
                 data_logger.warning(
                     "Skipping response time aggregation for unknown sentiment {}.",
@@ -198,7 +196,7 @@ class OfflineMetricsAnalyzer:
         metrics: dict[CustomerSentiment, SatisfactionScoreStats] = {}
         for sentiment_value, segment in grouped:
             try:
-                sentiment = CustomerSentiment(sentiment_value)
+                sentiment = CustomerSentiment(str(sentiment_value))
             except ValueError:
                 data_logger.warning(
                     "Skipping satisfaction score aggregation for unknown sentiment {}.",

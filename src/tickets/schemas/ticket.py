@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class AgentSpecialization(str, Enum):
+class AgentSpecialization(StrEnum):
     API = "api"
     DATABASE = "database"
     ENTERPRISE = "enterprise"
@@ -15,14 +15,14 @@ class AgentSpecialization(str, Enum):
     SECURITY = "security"
 
 
-class BusinessImpact(str, Enum):
+class BusinessImpact(StrEnum):
     CRITICAL = "critical"
     HIGH = "high"
     LOW = "low"
     MEDIUM = "medium"
 
 
-class Category(str, Enum):
+class Category(StrEnum):
     ACCOUNT_MANAGEMENT = "Account Management"
     DATA_ISSUE = "Data Issue"
     FEATURE_REQUEST = "Feature Request"
@@ -30,7 +30,7 @@ class Category(str, Enum):
     TECHNICAL_ISSUE = "Technical Issue"
 
 
-class SubCategory(str, Enum):
+class SubCategory(StrEnum):
     UI_UX = "UI/UX"
     API = "API"
     ENHANCEMENT = "Enhancement"
@@ -58,7 +58,7 @@ class SubCategory(str, Enum):
     CONFIGURATION = "Configuration"
 
 
-class Channel(str, Enum):
+class Channel(StrEnum):
     API = "api"
     CHAT = "chat"
     EMAIL = "email"
@@ -67,7 +67,7 @@ class Channel(str, Enum):
     SLACK = "slack"
 
 
-class CustomerSentiment(str, Enum):
+class CustomerSentiment(StrEnum):
     ANGRY = "angry"
     CONFUSED = "confused"
     FRUSTRATED = "frustrated"
@@ -76,7 +76,7 @@ class CustomerSentiment(str, Enum):
     SATISFIED = "satisfied"
 
 
-class CustomerTier(str, Enum):
+class CustomerTier(StrEnum):
     ENTERPRISE = "enterprise"
     FREE = "free"
     PREMIUM = "premium"
@@ -84,7 +84,7 @@ class CustomerTier(str, Enum):
     STARTER = "starter"
 
 
-class Environment(str, Enum):
+class Environment(StrEnum):
     DEVELOPMENT = "development"
     PRODUCTION = "production"
     SANDBOX = "sandbox"
@@ -92,7 +92,7 @@ class Environment(str, Enum):
     TEST = "test"
 
 
-class EscalationReason(str, Enum):
+class EscalationReason(StrEnum):
     COMPLEX_TECHNICAL_ISSUE_REQUIRING_SPECIALIST = "Complex technical issue requiring specialist"
     CUSTOMER_REQUESTED_ESCALATION = "Customer requested escalation"
     HIGH_PRIORITY_CUSTOMER = "High priority customer"
@@ -100,7 +100,7 @@ class EscalationReason(str, Enum):
     SLA_BREACH_RISK = "SLA breach risk"
 
 
-class Language(str, Enum):
+class Language(StrEnum):
     DE = "de"
     EN = "en"
     ES = "es"
@@ -111,14 +111,14 @@ class Language(str, Enum):
     ZH = "zh"
 
 
-class Priority(str, Enum):
+class Priority(StrEnum):
     CRITICAL = "critical"
     HIGH = "high"
     LOW = "low"
     MEDIUM = "medium"
 
 
-class Product(str, Enum):
+class Product(StrEnum):
     API_GATEWAY = "API Gateway"
     ANALYTICS_DASHBOARD = "Analytics Dashboard"
     CLOUDBACKUP_ENTERPRISE = "CloudBackup Enterprise"
@@ -126,7 +126,7 @@ class Product(str, Enum):
     STREAMPROCESSOR = "StreamProcessor"
 
 
-class ProductModule(str, Enum):
+class ProductModule(StrEnum):
     API_CONNECTOR = "api_connector"
     AUTH_SERVICE = "auth_service"
     BACKUP_SERVICE = "backup_service"
@@ -149,7 +149,7 @@ class ProductModule(str, Enum):
     VISUALIZATION = "visualization"
 
 
-class Region(str, Enum):
+class Region(StrEnum):
     APAC = "APAC"
     EU = "EU"
     LATAM = "LATAM"
@@ -157,7 +157,7 @@ class Region(str, Enum):
     NA = "NA"
 
 
-class ResolutionCode(str, Enum):
+class ResolutionCode(StrEnum):
     BUG_FIX = "BUG_FIX"
     CONFIG_CHANGE = "CONFIG_CHANGE"
     DATA_REPAIR = "DATA_REPAIR"
@@ -172,7 +172,7 @@ class ResolutionCode(str, Enum):
     WORKAROUND = "WORKAROUND"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     P0 = "P0"
     P1 = "P1"
     P2 = "P2"

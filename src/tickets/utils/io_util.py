@@ -100,8 +100,28 @@ def read_df_from_s3(data_path: str) -> pd.DataFrame:
     # Read the raw JSON payload and hydrate a dataframe.
     obj = s3_client.get_object(Bucket=cfg.data.bucket, Key=data_path)
     body = obj["Body"].read()
-    df = pd.read_json(io.BytesIO(body), lines=False)
+    if data_path.endswith("json"):
+        df = pd.read_json(io.BytesIO(body), lines=False)
+    elif data_path.endswith("parquet"):
+        df = pd.read_parquet(io.BytesIO(body))
+    elif data_path.endswith("csv"):
+        df = pd.read_csv(io.BytesIO(body))
+    else:
+        raise ValueError("Unknown file type.")
     return df
+
+
+def read_offline_from_s3() -> pd.DataFrame:
+    res = read_df_from_s3(cfg.data.offline_file)
+    return res
+
+
+def read_bronze() -> pd.DataFrame:
+    return read_df_from_s3(cfg.data.bronze_file)
+
+
+def read_raw() -> pd.DataFrame:
+    return read_df_from_s3(cfg.data.raw_file)
 
 
 def save_df_to_s3(df: pd.DataFrame, data_path: str) -> None:
@@ -116,4 +136,7 @@ def save_df_to_s3(df: pd.DataFrame, data_path: str) -> None:
     )
 
 
-__all__ = ["data_logger", "ml_logger", "api_logger", "redis_pool", "s3_client"]
+def s3_uri(key: str) -> str:
+    """Return a fully qualified S3-style URI for the configured bucket."""
+
+    return f"s3://{cfg.data.bucket}/{key}"

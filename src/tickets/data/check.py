@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import io
 from time import perf_counter
-from typing import Final
 
 import pandas as pd
 from prefect import task
@@ -23,11 +21,8 @@ from tickets.schemas.events import (
 from ..schemas.data_quality import DataQualityReport
 from ..schemas.ticket import Ticket
 from ..utils.config_util import cfg
-from ..utils.io_util import data_logger, s3_client
+from ..utils.io_util import data_logger, read_offline_from_s3
 
-OFFLINE_PATH: Final[str] = cfg.data.offline_file
-BUCKET_NAME: Final[str] = cfg.data.bucket
-QUALITY_REPORT_PATH: Final[str] = cfg.data.quality_report_file
 MAX_VIOLATIONS = 5
 
 
@@ -35,7 +30,17 @@ class DataQuality:
     def __init__(self, df: pd.DataFrame | None = None) -> None:
         self._df: pd.DataFrame
         if df is None:
-            self._df = self._get_offline_from_s3()
+            self._df = read_offline_from_s3()
+            DataLoadOfflineEvent(
+                feature_group="offline_ticket_quality",
+                storage_path=cfg.data.offline_file,
+                records_loaded=int(self._df.shape[0]),
+                cache_hit=False,
+                metadata={
+                    "bucket": cfg.data.bucket,
+                    "columns": list(self._df.columns),
+                },
+            ).emit()
         else:
             self._df = df
         self.invalid_schema_num = 0
@@ -43,22 +48,6 @@ class DataQuality:
         self.missing_value = 0
         self.invalid_indices: pd.Series = pd.Series(False, index=self._df.index)
         self.cleaned_df: pd.DataFrame
-
-    def _get_offline_from_s3(self) -> pd.DataFrame:
-        obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=OFFLINE_PATH)
-        body = obj["Body"].read()
-        offline_df = pd.read_parquet(io.BytesIO(body))
-        DataLoadOfflineEvent(
-            feature_group="offline_ticket_quality",
-            storage_path=OFFLINE_PATH,
-            records_loaded=int(offline_df.shape[0]),
-            cache_hit=False,
-            metadata={
-                "bucket": BUCKET_NAME,
-                "columns": list(offline_df.columns),
-            },
-        ).emit()
-        return offline_df
 
     @task
     def check_schema(self) -> pd.Series:
@@ -161,11 +150,11 @@ class DataQuality:
             f"missing_value={report.missing_value}"
         )
         DataQaReportEvent(
-            report_uri=QUALITY_REPORT_PATH,
+            report_uri=cfg.data.quality_report_file,
             summary=summary,
             attachments=[],
             metadata={
-                "bucket": BUCKET_NAME,
+                "bucket": cfg.data.bucket,
                 "records_evaluated": int(self._df.shape[0]),
             },
         ).emit()
@@ -177,7 +166,7 @@ class DataQuality:
         cleaned_df = self._df.loc[~self.invalid_indices]
         self.cleaned_df = cleaned_df.copy().reset_index(drop=True)
         DataQaCleanedEvent(
-            dataset_uri=f"s3://{BUCKET_NAME}/{OFFLINE_PATH}",
+            dataset_uri=f"s3://{cfg.data.bucket}/{cfg.data.offline_file}",
             records_available=int(self.cleaned_df.shape[0]),
             cleaning_steps=[
                 "schema_validation",

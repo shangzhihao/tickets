@@ -18,7 +18,14 @@ from ..schemas.events import (
     DataSaveOnlineEvent,
 )
 from ..utils.config_util import cfg
-from ..utils.io_util import data_logger, read_df_from_s3, redis_pool, s3_client, save_df_to_s3
+from ..utils.io_util import (
+    data_logger,
+    read_df_from_s3,
+    redis_pool,
+    s3_client,
+    s3_uri,
+    save_df_to_s3,
+)
 
 
 def _duration_ms(start_ns: int) -> int:
@@ -26,12 +33,6 @@ def _duration_ms(start_ns: int) -> int:
 
     elapsed = perf_counter_ns() - start_ns
     return max(int(elapsed / 1_000_000), 0)
-
-
-def _s3_uri(key: str) -> str:
-    """Return a fully qualified S3-style URI for the configured bucket."""
-
-    return f"s3://{cfg.data.bucket}/{key}"
 
 
 @flow
@@ -59,7 +60,7 @@ class DataIngestion:
         if self.raw_data.empty:
             self.raw_data = read_df_from_s3(self.raw_data_path)
         DataLoadRawEvent(
-            source_uri=_s3_uri(self.raw_data_path),
+            source_uri=s3_uri(self.raw_data_path),
             records_loaded=len(self.raw_data),
             duration_ms=_duration_ms(read_start),
         ).emit()
@@ -78,7 +79,7 @@ class DataIngestion:
             ExtraArgs={"ContentType": "application/x-parquet"},
         )
         DataSaveBronzeEvent(
-            table_uri=_s3_uri(self.bronze_data_path),
+            table_uri=s3_uri(self.bronze_data_path),
             records_written=len(self.bronze_data),
             duration_ms=_duration_ms(write_start),
         ).emit()
@@ -101,7 +102,7 @@ class DataIngestion:
             data_logger.info(f"{len(self.bronze_data)} bronze records read from s3")
 
             DataLoadBronzeEvent(
-                table_uri=_s3_uri(self.bronze_data_path),
+                table_uri=s3_uri(self.bronze_data_path),
                 records_loaded=len(self.bronze_data),
             ).emit()
         self.offline_data = self.bronze_to_offline()
@@ -111,7 +112,7 @@ class DataIngestion:
 
         DataSaveOfflineEvent(
             feature_group=f"{cfg.project_name}_offline",
-            storage_path=_s3_uri(self.offline_data_path),
+            storage_path=s3_uri(self.offline_data_path),
             records_written=len(self.offline_data),
             feature_names=list(self.offline_data.columns),
             metadata={"write_duration_ms": _duration_ms(write_start)},
@@ -143,7 +144,7 @@ class DataIngestion:
             data_logger.info(f"{len(self.offline_data)} offline records read to s3")
             DataLoadOfflineEvent(
                 feature_group=f"{cfg.project_name}_offline",
-                storage_path=_s3_uri(self.offline_data_path),
+                storage_path=s3_uri(self.offline_data_path),
                 records_loaded=len(self.offline_data),
                 cache_hit=False,
                 metadata={
