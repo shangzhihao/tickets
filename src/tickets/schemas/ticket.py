@@ -30,6 +30,34 @@ class Category(str, Enum):
     TECHNICAL_ISSUE = "Technical Issue"
 
 
+class SubCategory(str, Enum):
+    UI_UX = "UI/UX"
+    API = "API"
+    ENHANCEMENT = "Enhancement"
+    DOCUMENTATION = "Documentation"
+    NEW_FEATURE = "New Feature"
+    SUBSCRIPTION = "Subscription"
+    LICENSE = "License"
+    BILLING = "Billing"
+    UPGRADE = "Upgrade"
+    ACCESS_CONTROL = "Access Control"
+    AUTHENTICATION = "Authentication"
+    ENCRYPTION = "Encryption"
+    COMPLIANCE = "Compliance"
+    AUTHORIZATION = "Authorization"
+    VULNERABILITY = "Vulnerability"
+    IMPORT_EXPORT = "Import/Export"
+    DATA_LOSS = "Data Loss"
+    SYNC_ERROR = "Sync Error"
+    CORRUPTION = "Corruption"
+    VALIDATION = "Validation"
+    INTEGRATION = "Integration"
+    PERFORMANCE = "Performance"
+    COMPATIBILITY = "Compatibility"
+    BUG = "Bug"
+    CONFIGURATION = "Configuration"
+
+
 class Channel(str, Enum):
     API = "api"
     CHAT = "chat"
@@ -168,7 +196,7 @@ class Ticket(BaseModel):
     product_version: str
     product_module: ProductModule
     category: Category
-    subcategory: str
+    subcategory: SubCategory
     priority: Priority
     severity: Severity
     channel: Channel
