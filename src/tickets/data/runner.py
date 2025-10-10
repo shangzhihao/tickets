@@ -8,14 +8,14 @@ from .ingest import ingest
 
 @flow
 def runner(task: Task) -> None:
-    if task == Task.INGEST:
+    if task == Task.DATA_INGEST:
         ingest()
-    elif task == Task.ANALYZE:
+    elif task == Task.DATA_ANALYZE:
         res = offline_analyzer.analyze()
         for key, item in res.to_dict().items():
             print(key, item)
         offline_analyzer.save_metrics_to_s3()
-    elif task == Task.CHECK:
+    elif task == Task.DATA_CHECK:
         dq = DataQuality()
         print(dq.gen_report())
         dq.clean()

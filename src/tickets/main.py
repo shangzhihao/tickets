@@ -3,7 +3,7 @@ from .schemas.tasks import Task
 
 
 def main() -> None:
-    tasks = [Task.INGEST, Task.CHECK, Task.ANALYZE]
+    tasks = [Task.DATA_INGEST, Task.DATA_CHECK, Task.DATA_ANALYZE]
     for task in tasks:
         runner(task)
 
