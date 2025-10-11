@@ -341,7 +341,7 @@ def get_num_features() -> list[str]:
         t = field.annotation
         if t is None:
             continue
-        if issubclass(t, int | float) and attr.get("feature", False):
+        if (t is int) or (t is float) and attr.get("feature", False):
             res.append(name)
     return res
 

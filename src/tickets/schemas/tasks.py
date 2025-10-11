@@ -7,6 +7,7 @@ class Task(StrEnum):
     DATA_INGEST_ONLINE = auto()
     DATA_INGEST_OFFINE = auto()
 
+    # TODO: expand DATA_ANALYZE
     DATA_ANALYZE = auto()
 
     DATA_CHECK = auto()
@@ -15,3 +16,5 @@ class Task(StrEnum):
     DATA_CHECK_CLEAN = auto()
     DATA_CHECK_SCHEMA = auto()
     DATA_CHECK_TIMING = auto()
+
+    MODEL_XG_TRAIN = auto()

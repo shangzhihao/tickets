@@ -3209,7 +3209,7 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=21.0.0" },
     { name = "pydantic", specifier = ">=2.11.9" },
     { name = "rank-bm25", specifier = ">=0.2.2" },
-    { name = "redis", extras = ["hiredis", "json"], specifier = ">=6.4.0" },
+    { name = "redis", extras = ["hiredis"], specifier = ">=6.4.0" },
     { name = "scikit-learn", specifier = ">=1.7.2" },
     { name = "sentence-transformers", specifier = ">=5.1.1" },
     { name = "torch", specifier = ">=2.8.0" },
