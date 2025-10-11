@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum, IntEnum, StrEnum
+from functools import lru_cache
+from typing import get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -180,6 +183,23 @@ class Severity(StrEnum):
     P4 = "P4"
 
 
+class SATISFACTION_SCORE(IntEnum):
+    ONE = 1
+    TWO = 2
+    THREE = 3
+    FOUR = 4
+    FIVE = 5
+
+
+class ATTACHMENTS_COUNT(IntEnum):
+    NONE = 0
+    ONE = 1
+    TWO = 2
+    THREE = 3
+    FOUR = 4
+    FIVE = 5
+
+
 class Ticket(BaseModel):
     """Normalized representation of a support ticket."""
 
@@ -191,57 +211,156 @@ class Ticket(BaseModel):
     resolved_at: datetime
     customer_id: str
     organization_id: str
-    customer_tier: CustomerTier
-    product: Product
+    customer_tier: CustomerTier = Field(..., json_schema_extra={"feature": True})
+    product: Product = Field(..., json_schema_extra={"feature": True})
     product_version: str
-    product_module: ProductModule
-    category: Category
-    subcategory: SubCategory
-    priority: Priority
-    severity: Severity
-    channel: Channel
-    subject: str
-    description: str
-    error_logs: str
-    stack_trace: str
-    customer_sentiment: CustomerSentiment
-    previous_tickets: int = Field(ge=0)
-    resolution: str
+    product_module: ProductModule = Field(..., json_schema_extra={"feature": True})
+    category: Category = Field(..., json_schema_extra={"target": True})
+    subcategory: SubCategory = Field(..., json_schema_extra={"target": True})
+    priority: Priority = Field(..., json_schema_extra={"feature": True})
+    severity: Severity = Field(..., json_schema_extra={"feature": True})
+    channel: Channel = Field(..., json_schema_extra={"feature": True})
+    subject: str = Field(..., json_schema_extra={"feature": True})
+    description: str = Field(..., json_schema_extra={"feature": True})
+    error_logs: str = Field(..., json_schema_extra={"feature": True})
+    stack_trace: str = Field(..., json_schema_extra={"feature": True})
+    customer_sentiment: CustomerSentiment = Field(..., json_schema_extra={"target": True})
+    previous_tickets: int = Field(ge=0, json_schema_extra={"feature": True})
+    resolution: str = Field(..., json_schema_extra={"feature": True})
     resolution_code: ResolutionCode
-    resolution_time_hours: float = Field(ge=0)
-    resolution_attempts: int = Field(ge=1)
+    resolution_time_hours: float = Field(ge=0, json_schema_extra={"feature": True})
+    resolution_attempts: int = Field(ge=1, json_schema_extra={"feature": True})
     agent_id: str
-    agent_experience_months: int = Field(ge=0)
-    agent_specialization: AgentSpecialization
-    agent_actions: list[str]
-    escalated: bool
+    agent_experience_months: int = Field(ge=0, json_schema_extra={"feature": True})
+    agent_specialization: AgentSpecialization = Field(..., json_schema_extra={"feature": True})
+    agent_actions: list[str] = Field(..., json_schema_extra={"feature": True})
+    escalated: bool = Field(..., json_schema_extra={"feature": True})
     escalation_reason: EscalationReason | None = None
-    transferred_count: int = Field(ge=0, le=3)
-    satisfaction_score: int = Field(ge=1, le=5)
-    feedback_text: str
-    resolution_helpful: bool
-    tags: list[str]
-    related_tickets: list[str]
-    kb_articles_viewed: list[str]
-    kb_articles_helpful: list[str]
-    environment: Environment
-    account_age_days: int = Field(ge=0)
-    account_monthly_value: int = Field(ge=0)
-    similar_issues_last_30_days: int = Field(ge=0)
-    product_version_age_days: int = Field(ge=0)
-    known_issue: bool
-    bug_report_filed: bool
+    transferred_count: int = Field(ge=0, le=10, json_schema_extra={"feature": True})
+    satisfaction_score: SATISFACTION_SCORE = Field(..., json_schema_extra={"feature": True})
+    feedback_text: str = Field(..., json_schema_extra={"feature": True})
+    resolution_helpful: bool = Field(..., json_schema_extra={"feature": True})
+    tags: list[str] = Field(..., json_schema_extra={"feature": True})
+    related_tickets: list[str] = Field(..., json_schema_extra={"feature": True})
+    kb_articles_viewed: list[str] = Field(..., json_schema_extra={"feature": True})
+    kb_articles_helpful: list[str] = Field(..., json_schema_extra={"feature": True})
+    environment: Environment = Field(..., json_schema_extra={"feature": True})
+    account_age_days: int = Field(ge=0, json_schema_extra={"feature": True})
+    account_monthly_value: int = Field(ge=0, json_schema_extra={"feature": True})
+    similar_issues_last_30_days: int = Field(ge=0, json_schema_extra={"feature": True})
+    product_version_age_days: int = Field(ge=0, json_schema_extra={"feature": True})
+    known_issue: bool = Field(..., json_schema_extra={"feature": True})
+    bug_report_filed: bool = Field(..., json_schema_extra={"feature": True})
     resolution_template_used: str | None = None
-    auto_suggested_solutions: list[str]
-    auto_suggestion_accepted: bool
-    ticket_text_length: int = Field(ge=0)
-    response_count: int = Field(ge=1)
-    attachments_count: int = Field(ge=0, le=5)
-    contains_error_code: bool
-    contains_stack_trace: bool
-    business_impact: BusinessImpact
-    affected_users: int = Field(ge=0)
-    weekend_ticket: bool
-    after_hours: bool
-    language: Language
-    region: Region
+    auto_suggested_solutions: list[str] = Field(..., json_schema_extra={"feature": True})
+    auto_suggestion_accepted: bool = Field(..., json_schema_extra={"feature": True})
+    ticket_text_length: int = Field(ge=0, json_schema_extra={"feature": True})
+    response_count: int = Field(ge=1, json_schema_extra={"feature": True})
+    attachments_count: ATTACHMENTS_COUNT = Field(..., json_schema_extra={"feature": True})
+    contains_error_code: bool = Field(..., json_schema_extra={"feature": True})
+    contains_stack_trace: bool = Field(..., json_schema_extra={"feature": True})
+    business_impact: BusinessImpact = Field(..., json_schema_extra={"feature": True})
+    affected_users: int = Field(ge=0, json_schema_extra={"feature": True})
+    weekend_ticket: bool = Field(..., json_schema_extra={"feature": True})
+    after_hours: bool = Field(..., json_schema_extra={"feature": True})
+    language: Language = Field(..., json_schema_extra={"feature": True})
+    region: Region = Field(..., json_schema_extra={"feature": True})
+
+
+@lru_cache(maxsize=1)
+def get_text_features() -> list[str]:
+    res = []
+    for name, field in Ticket.model_fields.items():
+        attr = field.json_schema_extra
+        if (attr is None) or (not isinstance(attr, Mapping)):
+            continue
+        t = field.annotation
+        if t is None:
+            continue
+        if (t is str) and attr.get("feature", False):
+            res.append(name)
+    return res
+
+
+@lru_cache(maxsize=1)
+def get_text_list_features() -> list[str]:
+    res = []
+    for name, field in Ticket.model_fields.items():
+        attr = field.json_schema_extra
+        if (attr is None) or (not isinstance(attr, Mapping)):
+            continue
+        t = field.annotation
+        origin = get_origin(t)
+        if origin is None:
+            continue
+        args = get_args(t)
+        if args is None:
+            continue
+        if (origin is list) and (args[0] is str):
+            res.append(name)
+    return res
+
+
+@lru_cache(maxsize=1)
+def get_cat_features() -> list[str]:
+    res = []
+    for name, field in Ticket.model_fields.items():
+        attr = field.json_schema_extra
+        if (attr is None) or (not isinstance(attr, Mapping)):
+            continue
+        t = field.annotation
+        if t is None:
+            continue
+        if issubclass(t, Enum) and attr.get("feature", False):
+            res.append(name)
+    return res
+
+
+@lru_cache(maxsize=1)
+def get_bool_features() -> list[str]:
+    res = []
+    for name, field in Ticket.model_fields.items():
+        attr = field.json_schema_extra
+        if (attr is None) or (not isinstance(attr, Mapping)):
+            continue
+        t = field.annotation
+        if t is None:
+            continue
+        if (t is bool) and attr.get("feature", False):
+            res.append(name)
+    return res
+
+
+@lru_cache(maxsize=1)
+def get_num_features() -> list[str]:
+    res = []
+    for name, field in Ticket.model_fields.items():
+        attr = field.json_schema_extra
+        if (attr is None) or (not isinstance(attr, Mapping)):
+            continue
+        t = field.annotation
+        if t is None:
+            continue
+        if issubclass(t, int | float) and attr.get("feature", False):
+            res.append(name)
+    return res
+
+
+@lru_cache(maxsize=1)
+def get_target() -> list[str]:
+    res = []
+    for name, field in Ticket.model_fields.items():
+        attr = field.json_schema_extra
+        if (attr is None) or (not isinstance(attr, Mapping)):
+            continue
+        if attr.get("target", False):
+            res.append(name)
+    return res
+
+
+TEXT_FEATURES = get_text_features()
+BOOL_FEATURES = get_bool_features()
+TEXT_LIST_FEATURES = get_text_list_features()
+CAT_FEATURES = get_cat_features()
+NUM_FEATURES = get_num_features()
+TARGETS = get_target()
