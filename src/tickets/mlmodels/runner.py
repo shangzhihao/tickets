@@ -9,10 +9,10 @@ def runner(task: Task) -> None:
             print("=" * 20)
             print("Training category:", cat)
             print("=" * 20)
-            xgboost_cat(target="subcategory", category=cat)
+            print(xgboost_cat(target="subcategory", category=cat))
     elif task == Task.MODEL_XG_TRAIN_CAT:
-        xgboost_cat(target="category")
+        print(xgboost_cat(target="category"))
     elif task == Task.MODEL_XG_TRAIN_SENT:
-        xgboost_cat(target="customer_sentiment")
+        print(xgboost_cat(target="customer_sentiment"))
     else:
         raise ValueError(f"Unknown task {task}")

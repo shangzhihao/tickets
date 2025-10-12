@@ -28,6 +28,7 @@ from ..schemas.ticket import (
 )
 from ..utils.config_util import cfg
 from ..utils.io_util import load_df_from_s3
+from ..utils.log_util import ml_logger
 from .preprocessing import TextTransformer, chronological_split
 
 
@@ -42,7 +43,7 @@ class ModelResult:
     metrics: dict[str, dict[str, float]]
 
 
-def xgboost_cat(target: str, category: Category | None = None) -> None:
+def xgboost_cat(target: str, category: Category | None = None) -> ModelResult:
     """Train XGBoost models for category prediction."""
 
     offline_frame = load_df_from_s3(
@@ -73,6 +74,7 @@ def xgboost_cat(target: str, category: Category | None = None) -> None:
     )
     df = pd.DataFrame()
     num_classes = 0
+    category_enum: Category | None = None
     if target not in TARGETS:
         raise ValueError(f"Target {target} not in {TARGETS}")
     if target == "subcategory" and category is None:
@@ -81,8 +83,9 @@ def xgboost_cat(target: str, category: Category | None = None) -> None:
         df = offline_frame
         num_classes = len(Category)
     elif target == "subcategory" and category is not None:
-        df = offline_frame[offline_frame["category"] == Category(category)]
-        num_classes = len(CAT_MAPPING[Category(category)])
+        category_enum = Category(category)
+        df = offline_frame[offline_frame["category"] == category_enum]
+        num_classes = len(CAT_MAPPING[category_enum])
     elif target == "customer_sentiment":
         df = offline_frame
         num_classes = len(CustomerSentiment)
@@ -91,8 +94,12 @@ def xgboost_cat(target: str, category: Category | None = None) -> None:
     features = TEXT_FEATURES + BOOL_FEATURES + TEXT_LIST_FEATURES + CAT_FEATURES + NUM_FEATURES
     train_x = splits.train[features]
     label_encoder = LabelEncoder()
-    train_y = label_encoder.fit_transform(splits.train[target])
-    test_y = label_encoder.fit_transform(splits.test[target])
+    label_encoder.fit(df[target])
+    num_classes = len(label_encoder.classes_)
+    if num_classes < 2:
+        raise ValueError(f"Target '{target}' requires at least two classes for training.")
+    train_y = label_encoder.transform(splits.train[target])
+    test_y = label_encoder.transform(splits.test[target])
     # define model
     clf = XGBClassifier(
         n_estimators=300,
@@ -104,7 +111,7 @@ def xgboost_cat(target: str, category: Category | None = None) -> None:
         objective="multi:softprob",
         eval_metric="logloss",
         tree_method="hist",
-        random_state=42,
+        random_state=cfg.seed,
         num_class=num_classes,
     )
     pipe = Pipeline(
@@ -119,4 +126,43 @@ def xgboost_cat(target: str, category: Category | None = None) -> None:
     test_x = splits.test[features]
     pred_y = pipe.predict(test_x)
 
-    print(classification_report(test_y, pred_y))
+    raw_metrics = classification_report(
+        test_y,
+        pred_y,
+        labels=list(range(len(label_encoder.classes_))),
+        target_names=[str(label) for label in label_encoder.classes_],
+        output_dict=True,
+        zero_division=0,
+    )
+    metrics: dict[str, dict[str, float]] = {}
+    for key, value in raw_metrics.items():
+        if isinstance(value, dict):
+            metrics[key] = {metric: float(val) for metric, val in value.items()}
+        else:
+            metrics[key] = {"value": float(value)}
+
+    if category_enum is not None:
+        category_label = category_enum.value
+    elif isinstance(category, Category):
+        category_label = category.value
+    elif category is None:
+        category_label = "all"
+    weighted_f1 = metrics.get("weighted avg", {}).get("f1-score", 0.0)
+    accuracy = metrics.get("accuracy", {}).get("value", 0.0)
+    ml_logger.info(
+        "Trained XGBoost target={} category={} -> weighted_f1={:.4f}, accuracy={:.4f}",
+        target,
+        category_label,
+        weighted_f1,
+        accuracy,
+    )
+
+    return ModelResult(
+        target=target,
+        pipeline=pipe,
+        label_encoder=label_encoder,
+        classes=tuple(
+            label if isinstance(label, str) else str(label) for label in label_encoder.classes_
+        ),
+        metrics=metrics,
+    )
