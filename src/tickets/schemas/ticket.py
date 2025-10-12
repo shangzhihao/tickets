@@ -358,6 +358,44 @@ def get_target() -> list[str]:
     return res
 
 
+CAT_MAPPING = {
+    Category.FEATURE_REQUEST: [
+        SubCategory.UI_UX,
+        SubCategory.API,
+        SubCategory.ENHANCEMENT,
+        SubCategory.DOCUMENTATION,
+        SubCategory.NEW_FEATURE,
+    ],
+    Category.ACCOUNT_MANAGEMENT: [
+        SubCategory.SUBSCRIPTION,
+        SubCategory.LICENSE,
+        SubCategory.BILLING,
+        SubCategory.UPGRADE,
+        SubCategory.ACCESS_CONTROL,
+    ],
+    Category.SECURITY: [
+        SubCategory.AUTHENTICATION,
+        SubCategory.ENCRYPTION,
+        SubCategory.COMPLIANCE,
+        SubCategory.AUTHORIZATION,
+        SubCategory.VULNERABILITY,
+    ],
+    Category.DATA_ISSUE: [
+        SubCategory.IMPORT_EXPORT,
+        SubCategory.DATA_LOSS,
+        SubCategory.SYNC_ERROR,
+        SubCategory.CORRUPTION,
+        SubCategory.VALIDATION,
+    ],
+    Category.TECHNICAL_ISSUE: [
+        SubCategory.INTEGRATION,
+        SubCategory.PERFORMANCE,
+        SubCategory.COMPATIBILITY,
+        SubCategory.BUG,
+        SubCategory.CONFIGURATION,
+    ],
+}
+
 TEXT_FEATURES = get_text_features()
 BOOL_FEATURES = get_bool_features()
 TEXT_LIST_FEATURES = get_text_list_features()

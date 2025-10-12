@@ -69,26 +69,6 @@ class TextTransformer(BaseEstimator, TransformerMixin):
         return pd.Series(combined, index=frame.index, dtype=str)
 
 
-# class TextTransformer(BaseEstimator, TransformerMixin):
-#     """Extracts year, month, day from datetime column(s)."""
-#     def __init__(self, columns):
-#         self.columns = columns
-
-#     def fit(self, X, y=None):
-#         return self
-
-#     def transform(self, X):
-#         _X = X.copy()
-#         out = pd.DataFrame(index=_X.index)
-#         out["text"] = ""
-#         for col in self.columns:
-#             if col in TEXT_FEATURES:
-#                 out["text"] = out["text"] + ". " + normalize_text(_X[col])
-#             elif col in TEXT_LIST_FEATURES:
-#                 out["text"] = out["text"] + ". " + normalize_str_list(_X[col])
-#         return out
-
-
 def chronological_split(
     frame: pd.DataFrame,
     *,

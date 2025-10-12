@@ -17,4 +17,6 @@ class Task(StrEnum):
     DATA_CHECK_SCHEMA = auto()
     DATA_CHECK_TIMING = auto()
 
-    MODEL_XG_TRAIN = auto()
+    MODEL_XG_TRAIN_CAT = auto()
+    MODEL_XG_TRAIN_SUB = auto()
+    MODEL_XG_TRAIN_SENT = auto()

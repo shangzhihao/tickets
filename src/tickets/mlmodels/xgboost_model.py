@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import (
@@ -17,9 +18,13 @@ from xgboost import XGBClassifier
 from ..schemas.ticket import (
     BOOL_FEATURES,
     CAT_FEATURES,
+    CAT_MAPPING,
     NUM_FEATURES,
+    TARGETS,
     TEXT_FEATURES,
     TEXT_LIST_FEATURES,
+    Category,
+    CustomerSentiment,
 )
 from ..utils.config_util import cfg
 from ..utils.io_util import load_df_from_s3
@@ -37,8 +42,8 @@ class ModelResult:
     metrics: dict[str, dict[str, float]]
 
 
-def train_xgboost_models() -> None:
-    """Train XGBoost models for category, subcategory, and sentiment prediction."""
+def xgboost_cat(target: str, category: Category | None = None) -> None:
+    """Train XGBoost models for category prediction."""
 
     offline_frame = load_df_from_s3(
         data_path=cfg.data.offline_file,
@@ -48,7 +53,12 @@ def train_xgboost_models() -> None:
     text_pipeline = Pipeline(
         [
             ("combine", TextTransformer(TEXT_FEATURES + TEXT_LIST_FEATURES)),
-            ("tfidf", TfidfVectorizer(max_features=2000, ngram_range=(1, 2))),
+            (
+                "tfidf",
+                TfidfVectorizer(
+                    max_features=20000, ngram_range=(1, 3), min_df=2, sublinear_tf=True
+                ),
+            ),
         ]
     )
     preprocess = ColumnTransformer(
@@ -61,6 +71,29 @@ def train_xgboost_models() -> None:
         remainder="drop",
         sparse_threshold=1.0,  # keep it sparse; good for XGBoost
     )
+    df = pd.DataFrame()
+    num_classes = 0
+    if target not in TARGETS:
+        raise ValueError(f"Target {target} not in {TARGETS}")
+    if target == "subcategory" and category is None:
+        raise ValueError("Category must be provided when target is subcategory")
+    elif target == "category":
+        df = offline_frame
+        num_classes = len(Category)
+    elif target == "subcategory" and category is not None:
+        df = offline_frame[offline_frame["category"] == Category(category)]
+        num_classes = len(CAT_MAPPING[Category(category)])
+    elif target == "customer_sentiment":
+        df = offline_frame
+        num_classes = len(CustomerSentiment)
+    # prepare data
+    splits = chronological_split(df)
+    features = TEXT_FEATURES + BOOL_FEATURES + TEXT_LIST_FEATURES + CAT_FEATURES + NUM_FEATURES
+    train_x = splits.train[features]
+    label_encoder = LabelEncoder()
+    train_y = label_encoder.fit_transform(splits.train[target])
+    test_y = label_encoder.fit_transform(splits.test[target])
+    # define model
     clf = XGBClassifier(
         n_estimators=300,
         max_depth=6,
@@ -68,26 +101,22 @@ def train_xgboost_models() -> None:
         subsample=0.9,
         colsample_bytree=0.9,
         reg_lambda=1.0,
-        objective="binary:logistic",
+        objective="multi:softprob",
         eval_metric="logloss",
         tree_method="hist",
         random_state=42,
+        num_class=num_classes,
     )
-    splits = chronological_split(offline_frame[:20000])
     pipe = Pipeline(
         steps=[
             ("preprocess", preprocess),
             ("model", clf),
         ]
     )
-    features = TEXT_FEATURES + BOOL_FEATURES + TEXT_LIST_FEATURES + CAT_FEATURES + NUM_FEATURES
-    train_x = splits.train[features]
-    label_encoder = LabelEncoder()
-    train_y = label_encoder.fit_transform(splits.train["customer_sentiment"])
+    # train model
     pipe.fit(train_x, train_y)
-
+    # evaluate model
     test_x = splits.test[features]
     pred_y = pipe.predict(test_x)
-    test_y = label_encoder.fit_transform(splits.test["customer_sentiment"])
 
     print(classification_report(test_y, pred_y))
