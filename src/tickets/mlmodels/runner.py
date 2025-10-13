@@ -11,7 +11,7 @@ offline_frame = load_df_from_s3(
     data_path=cfg.data.offline_file,
     group=__file__,
 )
-splits = chronological_split(offline_frame)
+splits = chronological_split(offline_frame[:2000])
 
 training_data = splits.train
 validation_data = splits.validation
@@ -34,6 +34,7 @@ def runner(task: Task) -> None:
             )
             clf.train()
             print(clf.evaluate(_validation_data))
+            break  # For demo purposes, only train on one category
     elif task == Task.MODEL_XG_TRAIN_CAT:
         clf = XGBModel(
             training_data=_training_data,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import (
     classification_report,
 )
+from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from xgboost import XGBClassifier
@@ -52,6 +54,8 @@ class XGBModel:
         self.validation_data = validation_data.copy() if validation_data is not None else None
         self.target = target
         self.model_result: ModelResult | None = None
+        self.grid_search_result: GridSearchCV | None = None
+        self.best_params: dict[str, Any] | None = None
         self.label_encoder = LabelEncoder()
         self._is_trained = False
         # initialized in _prepare_data
@@ -61,20 +65,42 @@ class XGBModel:
         self.valid_y = pd.Series() if validation_data is not None else None
         self._prepare_data()
         self.num_classes = len(self.training_data[self.target].unique())
-        self.clf_config = OmegaConf.to_container(cfg.xgboost, resolve=True)
-        if isinstance(self.clf_config, dict) is False:
+        raw_config = OmegaConf.to_container(cfg.xgboost, resolve=True)
+        if not isinstance(raw_config, dict):
             raise ValueError("XGBoost config must be a dictionary.")
+        base_params = raw_config.get("gbrt_params")
+        if not isinstance(base_params, dict):
+            raise ValueError("XGBoost config must contain `gbrt_params` mapping.")
+        self.model_params: dict[str, Any] = dict(base_params)
+        self.early_stopping_rounds = self.model_params.pop("early_stopping_rounds", None)
+        if self.early_stopping_rounds is not None:
+            self.early_stopping_rounds = int(self.early_stopping_rounds)
+        if validation_data is None:
+            self.early_stopping_rounds = None
+        grid_config = raw_config.get("grid_search", {})
+        if grid_config is None:
+            grid_config = {}
+        if not isinstance(grid_config, dict):
+            raise ValueError("`grid_search` configuration must be a dictionary if provided.")
+        self.grid_search_config: dict[str, Any] = dict(grid_config)
+        self.grid_search_enabled: bool = bool(self.grid_search_config.get("enabled", False))
+        param_grid = self.grid_search_config.get("param_grid", {})
+        if not isinstance(param_grid, dict):
+            raise ValueError("`param_grid` must be a dictionary when grid search is enabled.")
+        self.param_grid: dict[str, list[Any]] = cast(dict[str, list[Any]], param_grid)
+
+        tfidf = TfidfVectorizer(
+            max_features=cfg.tfidf.max_features,
+            ngram_range=tuple(cfg.tfidf.ngram_range),
+            min_df=cfg.tfidf.min_df,
+            sublinear_tf=cfg.tfidf.sublinear_tf,
+        )
         self.text_pipeline = Pipeline(
             [
                 ("combine", TextTransformer(TEXT_FEATURES + TEXT_LIST_FEATURES)),
                 (
                     "tfidf",
-                    TfidfVectorizer(
-                        max_features=20000,
-                        ngram_range=(1, 3),
-                        min_df=2,
-                        sublinear_tf=True,
-                    ),
+                    tfidf,
                 ),
             ]
         )
@@ -95,13 +121,12 @@ class XGBModel:
         if validation_data is not None:
             self.model = XGBClassifier(
                 num_class=self.num_classes,
-                **self.clf_config,
+                **self.model_params,
             )
         else:
-            self.clf_config.pop("early_stopping_rounds", None)
             self.model = XGBClassifier(
                 num_class=self.num_classes,
-                **self.clf_config,
+                **self.model_params,
             )
 
     def _prepare_data(self) -> None:
@@ -133,19 +158,59 @@ class XGBModel:
                 f"expected {self.num_classes}, got {_num_classes}"
             )
         _train_y = self.label_encoder.transform(self.train_y)
+        fit_kwargs: dict[str, Any] = {"verbose": False}
         if self.valid_x is not None and self.valid_y is not None:
             _valid_x = self.preprocess.transform(self.valid_x)
             _valid_y = self.label_encoder.transform(self.valid_y)
-            self.model.fit(
-                _train_x,
-                _train_y,
-                eval_set=[(_valid_x, _valid_y)],
-                verbose=False,
-            )
-        else:
-            self.model.fit(_train_x, _train_y, verbose=False)
+            fit_kwargs["eval_set"] = [(_valid_x, _valid_y)]
+
+        if self.grid_search_enabled:
+            if not self.param_grid:
+                ml_logger.warning(
+                    "Grid search enabled for target `{target}` but `param_grid` is empty. "
+                    "Proceeding without hyperparameter tuning.",
+                    target=self.target,
+                )
+            else:
+                grid_search = self._run_grid_search(_train_x, _train_y)
+                self.grid_search_result = grid_search
+                self.best_params = dict(grid_search.best_params_)
+                tuned_params = {**self.model_params, **self.best_params}
+                self.model_params = tuned_params
+                self.model = XGBClassifier(num_class=self.num_classes, **tuned_params)
+                ml_logger.info(
+                    "Completed grid search for target `{target}`.",
+                    target=self.target,
+                    best_params=self.best_params,
+                    best_score=float(grid_search.best_score_),
+                )
+        self.model.fit(_train_x, _train_y, **fit_kwargs)
         self._is_trained = True
         return self.model
+
+    def _run_grid_search(self, train_x: Any, train_y: np.ndarray) -> GridSearchCV:
+        """Run GridSearchCV over the configured hyperparameter grid."""
+
+        estimator = XGBClassifier(
+            num_class=self.num_classes,
+            **self.model_params,
+        )
+        cv_value = self.grid_search_config.get("cv", 3)
+        scoring = self.grid_search_config.get("scoring")
+        refit_value = self.grid_search_config.get("refit", True)
+        n_jobs_value = self.grid_search_config.get("n_jobs", -1)
+        verbose_value = self.grid_search_config.get("verbose", 0)
+        grid_search = GridSearchCV(
+            estimator=estimator,
+            param_grid=self.param_grid,
+            scoring=scoring,
+            cv=cv_value,
+            n_jobs=n_jobs_value,
+            refit=refit_value,
+            verbose=verbose_value,
+        )
+        grid_search.fit(train_x, train_y)
+        return grid_search
 
     def evaluate(self, test_data: pd.DataFrame) -> ModelResult:
         if not self._is_trained:

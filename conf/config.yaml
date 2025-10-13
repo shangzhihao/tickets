@@ -4,6 +4,7 @@ defaults:
   - dnn: defaults
   - xgboost: defaults
   - logging: defaults
+  - tfidf: defaults
   - _self_
 
 

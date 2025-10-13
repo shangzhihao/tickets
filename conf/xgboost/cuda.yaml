@@ -9,7 +9,9 @@ gbrt_params:
   eval_metric: mlogloss
   random_state: 42
   early_stopping_rounds: 10
-  tree_method: hist
+  tree_method: gpu_hist
+  predictor: gpu_predictor
+  device: cuda
 grid_search:
   enabled: true
   cv: 3
