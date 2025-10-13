@@ -21,54 +21,6 @@ class DatasetSplit:
     test: pd.DataFrame
 
 
-def normalize_text(value: object) -> str:
-    """Normalize heterogeneous textual inputs into a single-line string."""
-
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return " ".join(value.split())
-    return ""
-
-
-def normalize_str_list(values: list[str]) -> str:
-    """Normalize list-like fields into a whitespace-delimited string."""
-
-    tokens: list[str] = []
-    for value in values:
-        tokens.append(normalize_text(value))
-    return "; ".join(tokens)
-
-
-# src/tickets/mlmodels/preprocessing.py
-class TextTransformer(BaseEstimator, TransformerMixin):
-    """Collapse multiple textual columns into a single normalized document."""
-
-    def __init__(self, columns: Sequence[str]) -> None:
-        self.columns = tuple(columns)
-
-    def fit(self, X: pd.DataFrame, y: object = None) -> TextTransformer:
-        return self
-
-    def transform(self, X: pd.DataFrame) -> pd.Series:
-        frame = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X, columns=self.columns)
-        missing = [col for col in self.columns if col not in frame.columns]
-        if missing:
-            raise ValueError(f"TextTransformer missing columns: {missing}")
-
-        combined: list[str] = []
-        for row in frame.itertuples(index=False, name=None):
-            tokens: list[str] = []
-            for value, column in zip(row, self.columns, strict=False):
-                if column in TEXT_FEATURES:
-                    tokens.append(normalize_text(value))
-                elif column in TEXT_LIST_FEATURES:
-                    if isinstance(value, Sequence):
-                        tokens.append(normalize_str_list(list(value)))
-            combined.append(" ".join(token for token in tokens if token))
-        return pd.Series(combined, index=frame.index, dtype=str)
-
-
 def chronological_split(
     frame: pd.DataFrame,
     *,
@@ -107,3 +59,50 @@ def chronological_split(
     )
 
     return DatasetSplit(train=train_df, validation=validation_df, test=test_df)
+
+
+def normalize_text(value: object) -> str:
+    """Normalize heterogeneous textual inputs into a single-line string."""
+
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return " ".join(value.split())
+    return ""
+
+
+def normalize_str_list(values: list[str]) -> str:
+    """Normalize list-like fields into a whitespace-delimited string."""
+
+    tokens: list[str] = []
+    for value in values:
+        tokens.append(normalize_text(value))
+    return "; ".join(tokens)
+
+
+class TextTransformer(BaseEstimator, TransformerMixin):
+    """Collapse multiple textual columns into a single normalized document."""
+
+    def __init__(self, columns: Sequence[str]) -> None:
+        self.columns = tuple(columns)
+
+    def fit(self, X: pd.DataFrame, y: object = None) -> TextTransformer:
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.Series:
+        frame = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X, columns=self.columns)
+        missing = [col for col in self.columns if col not in frame.columns]
+        if missing:
+            raise ValueError(f"TextTransformer missing columns: {missing}")
+
+        combined: list[str] = []
+        for row in frame.itertuples(index=False, name=None):
+            tokens: list[str] = []
+            for value, column in zip(row, self.columns, strict=False):
+                if column in TEXT_FEATURES:
+                    tokens.append(normalize_text(value))
+                elif column in TEXT_LIST_FEATURES:
+                    if isinstance(value, Sequence):
+                        tokens.append(normalize_str_list(list(value)))
+            combined.append(" ".join(token for token in tokens if token))
+        return pd.Series(combined, index=frame.index, dtype=str)
