@@ -1,15 +1,15 @@
 
 type: minio
 
-endpoint: "http://localhost:9000"
-bucket: "tickets"
+endpoint: ${oc.env:MINIO_ENDPOINT,minioadmin}
+bucket: ${oc.env:MINIO_BUCKET,minioadmin}
 raw_file: "raw/tickets.json"
 bronze_file: "bronze/tickets.parquet"
 offline_file: "offline/tickets.parquet"
 metrics_file: "offline/metrics.json"
 quality_report_file: "offline/quality_report.json"
-access_key: ${oc.env:MINIO_ACCESS_KEY,minioadmin}
-secret_key: ${oc.env:MINIO_SECRET_KEY,minioadmin}
+access_key: ${oc.env:MINIO_ROOT_USER,minioadmin}
+secret_key: ${oc.env:MINIO_ROOT_PASSWORD,minioadmin}
 region: "us-east-1"
 
 num_online: 10000

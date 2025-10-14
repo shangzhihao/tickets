@@ -233,6 +233,4 @@ class OfflineMetricsAnalyzer:
         return analysis_res
 
 
-offline_analyzer = OfflineMetricsAnalyzer.from_s3()
-
-__all__ = ["OfflineMetricsAnalyzer", "offline_analyzer"]
+# offline_analyzer = OfflineMetricsAnalyzer.from_s3()

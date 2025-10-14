@@ -12,8 +12,9 @@ project_name: tickets
 seed: 42
 
 
-redis_host: localhost
-redis_port: 6379
+redis_host: ${oc.env:REDIS_HOST,localhost}
+redis_port: ${oc.env:REDIS_PORT,6379}
+redis_password: ${oc.env:REDIS_PASSWORD,password}
 
 split:
   - train: 0.7

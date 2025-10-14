@@ -16,6 +16,7 @@ from .config_util import cfg
 redis_pool: Final[redis.ConnectionPool] = redis.ConnectionPool(
     host=cfg.redis_host,
     port=cfg.redis_port,
+    password=cfg.redis_password,
     db=0,
     max_connections=50,
     decode_responses=False,
