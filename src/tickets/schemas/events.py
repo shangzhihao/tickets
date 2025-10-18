@@ -128,7 +128,6 @@ class DataQaTimingEvent(BaseEvent):
 
     event_type: EventType = EventType.DATA_QA_TIMING
     check_name: str = Field(..., description="Identifier of the timing check that ran.")
-    duration_ms: int = Field(..., ge=0, description="Measured duration in milliseconds.")
     passed: bool = Field(..., description="Indicates if the timing check passed.")
 
 
