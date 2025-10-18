@@ -11,6 +11,7 @@ gbrt_params:
   early_stopping_rounds: 10
   tree_method: hist
 grid_search:
+  sample_cap: 5000
   enabled: true
   cv: 3
   scoring: f1_macro

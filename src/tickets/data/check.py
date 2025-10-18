@@ -8,6 +8,7 @@ import pandas as pd
 from prefect import task
 from pydantic import ValidationError
 
+from tickets.schemas.data_quality import DataQualityReport
 from tickets.schemas.events import (
     DataQaBusinessEvent,
     DataQaCleanedEvent,
@@ -16,12 +17,10 @@ from tickets.schemas.events import (
     DataQaSchemaEvent,
     DataQaTimingEvent,
 )
-
-from ..schemas.data_quality import DataQualityReport
-from ..schemas.ticket import Ticket
-from ..utils.config_util import cfg
-from ..utils.io_util import load_df_from_s3
-from ..utils.log_util import data_logger
+from tickets.schemas.ticket import Ticket
+from tickets.utils.config_util import CONFIG
+from tickets.utils.io_util import load_df_from_s3
+from tickets.utils.log_util import DATA_LOGGER
 
 MAX_VIOLATIONS = 5
 
@@ -30,7 +29,7 @@ class DataQuality:
     def __init__(self, df: pd.DataFrame | None = None) -> None:
         self._df: pd.DataFrame
         if df is None:
-            self._df = load_df_from_s3(cfg.data.offline_file, group=__file__)
+            self._df = load_df_from_s3(CONFIG.data.offline_file, group=__file__)
         else:
             self._df = df
         self.invalid_schema_num = 0
@@ -51,7 +50,7 @@ class DataQuality:
             try:
                 Ticket.model_validate(payload)
             except ValidationError as exc:
-                data_logger.warning(f"row={row_index}: {exc.errors()}")
+                DATA_LOGGER.warning(f"row={row_index}: {exc.errors()}")
                 invalid_mask.iloc[row_index] = True
                 violations.append(f"row={row_index}: {exc.errors()}")
                 continue
@@ -124,7 +123,7 @@ class DataQuality:
         if not mask.any():
             return
         samples = self._df.loc[mask, sample_columns].head(3).to_dict(orient="records")
-        data_logger.warning(f"{message}; count={int(mask.sum())}; samples={samples}")
+        DATA_LOGGER.warning(f"{message}; count={int(mask.sum())}; samples={samples}")
         self.invalid_indices.update(self._df.index[mask].tolist())
 
     def gen_report(self) -> DataQualityReport:
@@ -140,11 +139,11 @@ class DataQuality:
             f"missing_value={report.missing_value}"
         )
         DataQaReportEvent(
-            report_uri=cfg.data.quality_report_file,
+            report_uri=CONFIG.data.quality_report_file,
             summary=summary,
             attachments=[],
             metadata={
-                "bucket": cfg.data.bucket,
+                "bucket": CONFIG.data.bucket,
                 "records_evaluated": int(self._df.shape[0]),
             },
         ).emit()
@@ -156,7 +155,7 @@ class DataQuality:
         cleaned_df = self._df.loc[~self.invalid_indices]
         self.cleaned_df = cleaned_df.copy().reset_index(drop=True)
         DataQaCleanedEvent(
-            dataset_uri=f"s3://{cfg.data.bucket}/{cfg.data.offline_file}",
+            dataset_uri=f"s3://{CONFIG.data.bucket}/{CONFIG.data.offline_file}",
             records_available=int(self.cleaned_df.shape[0]),
             cleaning_steps=[
                 "schema_validation",

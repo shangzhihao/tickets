@@ -6,6 +6,7 @@ bucket: ${oc.env:MINIO_BUCKET,minioadmin}
 raw_file: "raw/tickets.json"
 bronze_file: "bronze/tickets.parquet"
 offline_file: "offline/tickets.parquet"
+online_file: "online/tickets.parquet"
 metrics_file: "offline/metrics.json"
 quality_report_file: "offline/quality_report.json"
 access_key: ${oc.env:MINIO_ROOT_USER,minioadmin}

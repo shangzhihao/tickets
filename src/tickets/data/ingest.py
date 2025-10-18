@@ -6,19 +6,19 @@ import pandas as pd
 import redis
 from prefect import flow, task
 
-from ..schemas.events import DataSaveToRedisEvent
-from ..utils.config_util import cfg
-from ..utils.io_util import (
+from tickets.schemas.events import DataSaveToRedisEvent
+from tickets.utils.config_util import CONFIG
+from tickets.utils.io_util import (
     load_df_from_s3,
     redis_pool,
     save_df_to_s3,
 )
-from ..utils.log_util import data_logger
+from tickets.utils.log_util import DATA_LOGGER
 
 
 @flow
 def ingest() -> None:
-    raw = load_df_from_s3(data_path=cfg.data.raw_file, group=__file__)
+    raw = load_df_from_s3(data_path=CONFIG.data.raw_file, group=__file__)
 
     bronze = make_bronze(raw)
     offline = make_offline(bronze)
@@ -35,14 +35,14 @@ def raw_to_bronze(raw_data: pd.DataFrame) -> pd.DataFrame:
 def make_bronze(raw: pd.DataFrame | None = None) -> pd.DataFrame:
     """Read raw JSON tickets and store them in S3 as a bronze parquet file."""
     if raw is None or raw.empty:
-        _raw = load_df_from_s3(data_path=cfg.data.raw_file, group=__file__)
+        _raw = load_df_from_s3(data_path=CONFIG.data.raw_file, group=__file__)
     else:
         _raw = raw
 
     # Persist the bronze snapshot back to S3 as parquet for downstream steps.
     bronze_data = raw_to_bronze(_raw)
-    save_df_to_s3(df=bronze_data, data_path=cfg.data.bronze_file, group=__file__)
-    data_logger.info(
+    save_df_to_s3(df=bronze_data, data_path=CONFIG.data.bronze_file, group=__file__)
+    DATA_LOGGER.info(
         f"{len(bronze_data)} bronze records are saved.",
     )
     return bronze_data
@@ -56,15 +56,15 @@ def bronze_to_offline(bronze_data: pd.DataFrame) -> pd.DataFrame:
 def make_offline(bronze_data: pd.DataFrame | None) -> pd.DataFrame:
     """Persist a cleaned bronze dataset into the offline store."""
     if bronze_data is None or bronze_data.empty:
-        _bronze_data = load_df_from_s3(data_path=cfg.data.bronze_file, group=__file__)
+        _bronze_data = load_df_from_s3(data_path=CONFIG.data.bronze_file, group=__file__)
     else:
         _bronze_data = bronze_data.copy()
 
     offline_data = bronze_to_offline(_bronze_data)
 
     # Write the cleaned dataset to the offline S3 location.
-    save_df_to_s3(df=offline_data, data_path=cfg.data.offline_file, group=__file__)
-    data_logger.info(
+    save_df_to_s3(df=offline_data, data_path=CONFIG.data.offline_file, group=__file__)
+    DATA_LOGGER.info(
         f"{len(offline_data)} offline records are saved.",
     )
 
@@ -77,7 +77,7 @@ def off_to_online(offline_data: pd.DataFrame) -> pd.DataFrame:
     if "created_at" not in _offline_data.columns:
         raise KeyError("'created_at' column is required to order the online dataset.")
 
-    num = getattr(cfg.data, "num_online", None)
+    num = getattr(CONFIG.data, "num_online", None)
     if not isinstance(num, int) or num <= 0:
         raise ValueError("'data.num_online' must be a positive integer")
 
@@ -94,10 +94,14 @@ def off_to_online(offline_data: pd.DataFrame) -> pd.DataFrame:
 def make_online(offline_data: pd.DataFrame | None) -> pd.DataFrame:
     """Write an ordered, truncated dataset suitable for online serving."""
     if offline_data is None or offline_data.empty:
-        _offline_data = load_df_from_s3(data_path=cfg.data.offline_file, group=__file__)
+        _offline_data = load_df_from_s3(data_path=CONFIG.data.offline_file, group=__file__)
     else:
         _offline_data = offline_data.copy()
     online_data = off_to_online(_offline_data)
+    save_df_to_s3(df=online_data, data_path=CONFIG.data.online_file, group=__file__)
+    DATA_LOGGER.info(
+        f"{len(online_data)} online records are saved.",
+    )
     dt_cols = ["created_at", "updated_at", "resolved_at"]
     online_data[dt_cols] = online_data[dt_cols].apply(
         lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S%z")
@@ -116,15 +120,15 @@ def make_online(offline_data: pd.DataFrame | None) -> pd.DataFrame:
     results = pipe.execute()
     written_count = sum(results)
     failed_count = len(results) - written_count
-    data_logger.info("Records written to redis: {}", written_count)
+    DATA_LOGGER.info("Records written to redis: {}", written_count)
     if failed_count:
-        data_logger.warning("Records failed to write to redis: {}", failed_count)
+        DATA_LOGGER.warning("Records failed to write to redis: {}", failed_count)
     entity_keys = [
         str(ticket["ticket_id"])
         for ticket in records
         if isinstance(ticket.get("ticket_id"), str | int)
     ]
-    data_logger.info(
+    DATA_LOGGER.info(
         f"{written_count} online records are saved.",
     )
 
@@ -135,3 +139,7 @@ def make_online(offline_data: pd.DataFrame | None) -> pd.DataFrame:
         records_written=len(records),
     ).emit(level="WARNING" if failed_count else "INFO")
     return online_data
+
+
+if __name__ == "__main__":
+    ingest()

@@ -41,10 +41,10 @@ def load_config(
     return cfg
 
 
-cfg = load_config(
-    config_dir="../../../conf",
+CONFIG = load_config(
+    config_dir="../conf",
     config_name="config",
     overrides=gather_cli_overrides(sys.argv[1:]),
 )
 
-__all__ = ["cfg"]
+__all__ = ["CONFIG"]

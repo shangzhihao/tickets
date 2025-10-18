@@ -1,17 +1,17 @@
-from ..schemas.tasks import Task
-from ..schemas.ticket import (
+from tickets.mlmodels.dataset import chronological_split
+from tickets.mlmodels.xgboost_model import XGBModel
+from tickets.schemas.tasks import Task
+from tickets.schemas.ticket import (
     Category,
 )
-from ..utils.config_util import cfg
-from ..utils.io_util import load_df_from_s3
-from .preprocessing import chronological_split
-from .xgboost_model import XGBModel
+from tickets.utils.config_util import CONFIG
+from tickets.utils.io_util import load_df_from_s3
 
 offline_frame = load_df_from_s3(
-    data_path=cfg.data.offline_file,
+    data_path=CONFIG.data.offline_file,
     group=__file__,
 )
-splits = chronological_split(offline_frame[:2000])
+splits = chronological_split(offline_frame)
 
 training_data = splits.train
 validation_data = splits.validation

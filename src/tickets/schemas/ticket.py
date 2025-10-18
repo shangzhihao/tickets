@@ -241,9 +241,9 @@ class Ticket(BaseModel):
     feedback_text: str = Field(..., json_schema_extra={"feature": True})
     resolution_helpful: bool = Field(..., json_schema_extra={"feature": True})
     tags: list[str] = Field(..., json_schema_extra={"feature": True})
-    related_tickets: list[str] = Field(..., json_schema_extra={"feature": True})
-    kb_articles_viewed: list[str] = Field(..., json_schema_extra={"feature": True})
-    kb_articles_helpful: list[str] = Field(..., json_schema_extra={"feature": True})
+    related_tickets: list[str] = Field(...)
+    kb_articles_viewed: list[str] = Field(...)
+    kb_articles_helpful: list[str] = Field(...)
     environment: Environment = Field(..., json_schema_extra={"feature": True})
     account_age_days: int = Field(ge=0, json_schema_extra={"feature": True})
     account_monthly_value: int = Field(ge=0, json_schema_extra={"feature": True})
@@ -252,9 +252,9 @@ class Ticket(BaseModel):
     known_issue: bool = Field(..., json_schema_extra={"feature": True})
     bug_report_filed: bool = Field(..., json_schema_extra={"feature": True})
     resolution_template_used: str | None = None
-    auto_suggested_solutions: list[str] = Field(..., json_schema_extra={"feature": True})
-    auto_suggestion_accepted: bool = Field(..., json_schema_extra={"feature": True})
-    ticket_text_length: int = Field(ge=0, json_schema_extra={"feature": True})
+    auto_suggested_solutions: list[str] = Field(...)
+    auto_suggestion_accepted: bool = Field(...)
+    ticket_text_length: int = Field(ge=0)
     response_count: int = Field(ge=1, json_schema_extra={"feature": True})
     attachments_count: ATTACHMENTS_COUNT = Field(..., json_schema_extra={"feature": True})
     contains_error_code: bool = Field(..., json_schema_extra={"feature": True})
@@ -358,6 +358,21 @@ def get_target() -> list[str]:
     return res
 
 
+@lru_cache(maxsize=1)
+def get_enum_map() -> dict[str, type[Enum]]:
+    res = {}
+    for name, field in Ticket.model_fields.items():
+        attr = field.json_schema_extra
+        if (attr is None) or (not isinstance(attr, Mapping)):
+            continue
+        if not (attr.get("feature", False) or attr.get("target", False)):
+            continue
+        t = field.annotation
+        if isinstance(t, type) and issubclass(t, Enum):
+            res[name] = t
+    return res
+
+
 CAT_MAPPING = {
     Category.FEATURE_REQUEST: [
         SubCategory.UI_UX,
@@ -402,3 +417,5 @@ TEXT_LIST_FEATURES = get_text_list_features()
 CAT_FEATURES = get_cat_features()
 NUM_FEATURES = get_num_features()
 TARGETS = get_target()
+
+ENUM_FIELD_TYPES: dict[str, type[Enum]] = get_enum_map()

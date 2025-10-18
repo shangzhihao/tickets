@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, NonNegativeFloat
 
-from ..utils.log_util import event_logger
+from tickets.utils.log_util import EVENT_LOGGER
 
 
 class EventType(StrEnum):
@@ -48,7 +48,7 @@ class BaseEvent(BaseModel):
     def emit(self, *, level: str = "INFO") -> dict[str, Any]:
         """Emit the event to the configured Loguru sinks and return the payload."""
         payload = self.model_dump()
-        event_logger.log(level, payload)
+        EVENT_LOGGER.log(level, payload)
         return payload
 
 
@@ -61,6 +61,7 @@ class DataLoadOnS3Event(BaseEvent):
     records_loaded: int = Field(..., ge=0, description="Number of upserts performed.")
 
 
+# TODO
 class DataSaveToS3Event(BaseEvent):
     """Event emitted when features are written to the online store."""
 
@@ -112,6 +113,7 @@ class DataStatsSaveEvent(BaseEvent):
     records_written: int = Field(..., ge=0, description="Number of metric rows written.")
 
 
+# TODO
 class DataStataReadEvent(BaseEvent):
     """Event emitted when statistics are read from persistent storage."""
 

@@ -10,7 +10,7 @@ from typing import Any, Final
 from loguru import logger
 from omegaconf import DictConfig
 
-from .config_util import cfg
+from tickets.utils.config_util import CONFIG
 
 MODULES: Final[tuple[str, ...]] = ("api", "data", "ml", "event")
 
@@ -64,9 +64,9 @@ def _configure_module_loggers(config: DictConfig) -> dict[str, Any]:
     return {module: logger.bind(module=module) for module in MODULES}
 
 
-module_loggers = _configure_module_loggers(cfg)
+module_loggers = _configure_module_loggers(CONFIG)
 
-data_logger = module_loggers["data"]
-ml_logger = module_loggers["ml"]
-api_logger = module_loggers["api"]
-event_logger = module_loggers["event"]
+DATA_LOGGER = module_loggers["data"]
+ML_LOGGER = module_loggers["ml"]
+API_LOGGER = module_loggers["api"]
+EVENT_LOGGER = module_loggers["event"]

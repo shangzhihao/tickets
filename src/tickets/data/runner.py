@@ -1,7 +1,7 @@
 from prefect import flow
 
-from ..schemas.tasks import Task
-from .ingest import ingest
+from tickets.data.ingest import ingest
+from tickets.schemas.tasks import Task
 
 
 @flow
