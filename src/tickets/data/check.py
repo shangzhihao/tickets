@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import io
-from time import perf_counter
 from typing import Final
 
 import pandas as pd
+from pandas import DataFrame, Series
 from prefect import task
 from pydantic import ValidationError
 
+from tickets.schemas.data_quality import DataQualityReport
 from tickets.schemas.events import (
-    DataLoadOfflineEvent,
     DataQaBusinessEvent,
     DataQaCleanedEvent,
     DataQaMissingEvent,
@@ -19,174 +18,175 @@ from tickets.schemas.events import (
     DataQaSchemaEvent,
     DataQaTimingEvent,
 )
+from tickets.schemas.ticket import Ticket
+from tickets.utils.config_util import CONFIG
+from tickets.utils.io_util import load_df_from_s3, save_df_to_s3
+from tickets.utils.log_util import DATA_LOGGER
 
-from ..schemas.data_quality import DataQualityReport
-from ..schemas.ticket import Ticket
-from ..utils.config_util import cfg
-from ..utils.io_util import data_logger, s3_client
-
-OFFLINE_PATH: Final[str] = cfg.data.offline_file
-BUCKET_NAME: Final[str] = cfg.data.bucket
-QUALITY_REPORT_PATH: Final[str] = cfg.data.quality_report_file
-MAX_VIOLATIONS = 5
+MAX_VIOLATIONS: Final[int] = 5
+TEMPORAL_COLUMNS: Final[list[str]] = ["created_at", "updated_at", "resolved_at"]
 
 
-class DataQuality:
-    def __init__(self, df: pd.DataFrame | None = None) -> None:
-        self._df: pd.DataFrame
-        if df is None:
-            self._df = self._get_offline_from_s3()
-        else:
-            self._df = df
-        self.invalid_schema_num = 0
-        self.invalid_timing_num = 0
-        self.missing_value = 0
-        self.invalid_indices: pd.Series = pd.Series(False, index=self._df.index)
-        self.cleaned_df: pd.DataFrame
+def check_schema(df: DataFrame) -> Series:
+    """Return a boolean mask for rows that fail the Ticket schema validation."""
+    invalid_mask = pd.Series(False, index=df.index, dtype="bool")
+    violations: list[str] = []
 
-    def _get_offline_from_s3(self) -> pd.DataFrame:
-        obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=OFFLINE_PATH)
-        body = obj["Body"].read()
-        offline_df = pd.read_parquet(io.BytesIO(body))
-        DataLoadOfflineEvent(
-            feature_group="offline_ticket_quality",
-            storage_path=OFFLINE_PATH,
-            records_loaded=int(offline_df.shape[0]),
-            cache_hit=False,
-            metadata={
-                "bucket": BUCKET_NAME,
-                "columns": list(offline_df.columns),
-            },
-        ).emit()
-        return offline_df
+    for row_index, payload in enumerate(df.to_dict(orient="records")):
+        try:
+            Ticket.model_validate(payload)
+        except ValidationError as exc:
+            violations.append(f"row={row_index}: {exc.errors()}")
+            invalid_mask.iloc[row_index] = True
+            DATA_LOGGER.warning("schema_violation row=%s errors=%s", row_index, exc.errors())
 
-    @task
-    def check_schema(self) -> pd.Series:
-        """Validate every ticket row against the Pydantic Ticket schema."""
+    DataQaSchemaEvent(
+        violations=violations[:MAX_VIOLATIONS],
+        records_processed=int(df.shape[0]),
+        metadata={
+            "invalid_count": int(invalid_mask.sum()),
+            "violations_sampled": len(violations),
+        },
+    ).emit()
+    return invalid_mask
 
-        invalid_mask: pd.Series = pd.Series(False, index=self._df.index)
-        self.invalid_schema_num = 0
-        violations: list[str] = []
 
-        for row_index, payload in enumerate(self._df.to_dict(orient="records")):
-            try:
-                Ticket.model_validate(payload)
-            except ValidationError as exc:
-                data_logger.warning(f"row={row_index}: {exc.errors()}")
-                invalid_mask.iloc[row_index] = True
-                violations.append(f"row={row_index}: {exc.errors()}")
-                continue
-        self.invalid_schema_num = invalid_mask.sum()
-        if invalid_mask.any():
-            self.invalid_indices = self.invalid_indices | invalid_mask
-        DataQaSchemaEvent(
-            violations=violations[:MAX_VIOLATIONS],
-            records_processed=int(self._df.shape[0]),
-            metadata={
-                "invalid_count": self.invalid_schema_num,
-                "violations_sampled": len(violations),
-            },
-        ).emit()
-        return invalid_mask.copy()
+def check_timing(df: DataFrame) -> Series:
+    """Return a boolean mask for rows that violate temporal ordering constraints."""
+    resolved_before_created = df["resolved_at"].lt(df["created_at"])
+    updated_before_created = df["updated_at"].lt(df["created_at"])
+    resolved_before_updated = df["resolved_at"].lt(df["updated_at"])
 
-    @task
-    def check_timing(self) -> pd.Series:
-        start = perf_counter()
-        df = self._df
-        invalid_mask: pd.Series = pd.Series(False, index=self._df.index)
-        res_b4_cr8_mask = df["resolved_at"].lt(df["created_at"])
-        upd8_b4_cr8_mask = df["updated_at"].lt(df["created_at"])
-        res_b4_upd8_mask = df["resolved_at"].lt(df["updated_at"])
-        invalid_mask = res_b4_cr8_mask | upd8_b4_cr8_mask | res_b4_upd8_mask
-        check_passed = not invalid_mask.any()
-        self.invalid_indices = invalid_mask | self.invalid_indices
-        self.invalid_timing_num = self.invalid_indices.sum()
-        msg = "invalid temporal constraint"
-        cols = ["created_at", "updated_at", "resolved_at"]
-        self.register_issue(invalid_mask, msg, cols)
-        duration_ms = int((perf_counter() - start) * 1000)
-        DataQaTimingEvent(
-            check_name="ticket_temporal_ordering",
-            duration_ms=duration_ms,
-            passed=check_passed,
-            metadata={"rows_flagged": int(invalid_mask.sum())},
-        ).emit()
-        return invalid_mask.copy()
+    invalid_mask = resolved_before_created | updated_before_created | resolved_before_updated
 
-    @task
-    def check_business(self) -> None:
-        """This is a place holder"""
-        invalid_mask = pd.Series(False, index=self._df.index)
-        self.invalid_indices = self.invalid_indices | invalid_mask
-        DataQaBusinessEvent(
-            rule_set="default_business_rules",
-            failures=[],
-            blocking=False,
-            metadata={"rows_processed": int(self._df.shape[0])},
-        ).emit()
-
-    @task
-    def count_missing(self) -> int:
-        """Return the total number of null values in the offline dataset."""
-        missing_counts = self._df.isna().sum()
-        self.missing_value = int(missing_counts.sum())
-
-        DataQaMissingEvent(
-            records_processed=int(self._df.shape[0]),
-            missing_value=self.missing_value,
-            metadata={
-                "missing_total": self.missing_value,
-            },
-        ).emit()
-        return self.missing_value
-
-    def register_issue(self, mask: pd.Series, message: str, sample_columns: list[str]) -> None:
-        """Log a warning with contextual samples and track invalid rows."""
-        if not mask.any():
-            return
-        samples = self._df.loc[mask, sample_columns].head(3).to_dict(orient="records")
-        data_logger.warning(f"{message}; count={int(mask.sum())}; samples={samples}")
-        self.invalid_indices.update(self._df.index[mask].tolist())
-
-    def gen_report(self) -> DataQualityReport:
-        self.check_schema()
-        self.check_timing()
-        report = DataQualityReport(
-            invalid_schema=self.invalid_schema_num,
-            invalid_timing=self.invalid_timing_num,
-            missing_value=self.missing_value,
+    if invalid_mask.any():
+        samples = df.loc[invalid_mask, TEMPORAL_COLUMNS].head(3).to_dict(orient="records")
+        DATA_LOGGER.warning(
+            "invalid temporal constraint; count=%s; samples=%s",
+            int(invalid_mask.sum()),
+            samples,
         )
-        summary = (
-            f"invalid_schema={report.invalid_schema}, invalid_timing={report.invalid_timing}, "
-            f"missing_value={report.missing_value}"
-        )
-        DataQaReportEvent(
-            report_uri=QUALITY_REPORT_PATH,
-            summary=summary,
-            attachments=[],
-            metadata={
-                "bucket": BUCKET_NAME,
-                "records_evaluated": int(self._df.shape[0]),
-            },
-        ).emit()
-        return report
 
-    def clean(self) -> pd.DataFrame:
-        self.check_schema()
-        self.check_timing()
-        cleaned_df = self._df.loc[~self.invalid_indices]
-        self.cleaned_df = cleaned_df.copy().reset_index(drop=True)
-        DataQaCleanedEvent(
-            dataset_uri=f"s3://{BUCKET_NAME}/{OFFLINE_PATH}",
-            records_available=int(self.cleaned_df.shape[0]),
-            cleaning_steps=[
-                "schema_validation",
-                "temporal_validation",
-                "business_rules",
-            ],
-            metadata={
-                "source_rows": int(self._df.shape[0]),
-                "invalid_rows_removed": int(self.invalid_indices.sum()),
-            },
-        ).emit()
-        return self.cleaned_df.copy()
+    DataQaTimingEvent(
+        check_name="ticket_temporal_ordering",
+        passed=not invalid_mask.any(),
+        metadata={"rows_flagged": int(invalid_mask.sum())},
+    ).emit()
+    return invalid_mask
+
+
+def check_business_rules(df: DataFrame) -> Series:
+    """Return a boolean mask for rows that violate domain-specific business rules."""
+    invalid_mask = pd.Series(False, index=df.index, dtype="bool")
+    DataQaBusinessEvent(
+        rule_set="default_business_rules",
+        failures=[],
+        blocking=False,
+        metadata={"rows_processed": int(df.shape[0])},
+    ).emit()
+    return invalid_mask
+
+
+def count_missing_rows(df: DataFrame) -> Series:
+    """Return a boolean mask for rows containing at least one missing value."""
+    missing_mask = df.isna().any(axis=1)
+    missing_count = int(missing_mask.sum())
+    DataQaMissingEvent(
+        records_processed=int(df.shape[0]),
+        missing_value=missing_count,
+        metadata={"missing_rows": missing_count},
+    ).emit()
+    return missing_mask
+
+
+def build_report(
+    *,
+    schema_mask: Series,
+    timing_mask: Series,
+    business_mask: Series,
+    missing_mask: Series,
+    rows_evaluated: int,
+) -> DataQualityReport:
+    """Assemble the DataQualityReport and emit an audit event."""
+    report = DataQualityReport(
+        invalid_schema=int(schema_mask.sum()),
+        invalid_timing=int(timing_mask.sum()),
+        missing_row=int(missing_mask.sum()),
+        invalid_business=int(business_mask.sum()),
+    )
+    summary = (
+        f"invalid_schema={report.invalid_schema}, "
+        f"invalid_timing={report.invalid_timing}, "
+        f"missing_row={report.missing_row}, "
+        f"invalid_business={report.invalid_business}"
+    )
+    DataQaReportEvent(
+        report_uri=CONFIG.data.quality_report_file,
+        summary=summary,
+        attachments=[],
+        metadata={
+            "bucket": CONFIG.data.bucket,
+            "records_evaluated": rows_evaluated,
+        },
+    ).emit()
+    return report
+
+
+def clean_dataset(df: DataFrame, invalid_mask: Series) -> DataFrame:
+    """Return the cleaned dataset after removing rows flagged as invalid."""
+    cleaned_df = df.loc[~invalid_mask].copy().reset_index(drop=True)
+
+    DataQaCleanedEvent(
+        dataset_uri=f"s3://{CONFIG.data.bucket}/{CONFIG.data.offline_file}",
+        records_available=int(cleaned_df.shape[0]),
+        cleaning_steps=[
+            "schema_validation",
+            "temporal_validation",
+            "business_rules",
+        ],
+        metadata={
+            "source_rows": int(df.shape[0]),
+            "invalid_rows_removed": int(invalid_mask.sum()),
+        },
+    ).emit()
+    return cleaned_df
+
+
+@task
+def run_quality_checks() -> tuple[DataQualityReport, DataFrame]:
+    """Execute all quality checks on the provided dataframe."""
+    df = load_df_from_s3(data_path=CONFIG.data.offline_file, group=__file__)
+    schema_mask = check_schema(df)
+    timing_mask = check_timing(df)
+    business_mask = check_business_rules(df)
+    missing_mask = count_missing_rows(df)
+
+    invalid_mask = schema_mask | timing_mask | business_mask | missing_mask
+    cleaned_df = clean_dataset(df, invalid_mask)
+    save_df_to_s3(df=cleaned_df, data_path=CONFIG.data.clean_file, group=__file__)
+    report = build_report(
+        schema_mask=schema_mask,
+        timing_mask=timing_mask,
+        business_mask=business_mask,
+        missing_mask=missing_mask,
+        rows_evaluated=int(df.shape[0]),
+    )
+    return report, cleaned_df
+
+
+def main() -> None:
+    """Load the offline dataset, evaluate quality, and return the summary report."""
+    df = load_df_from_s3(data_path=CONFIG.data.offline_file, group=__file__)
+    report, cleaned_df = run_quality_checks.fn()
+    DATA_LOGGER.info(
+        "ticket_quality summary=%s cleaned_rows=%s source_rows=%s",
+        report.model_dump(),
+        int(cleaned_df.shape[0]),
+        int(df.shape[0]),
+    )
+    print(report)
+    print(cleaned_df.head())
+
+
+if __name__ == "__main__":
+    main()

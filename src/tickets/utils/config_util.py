@@ -3,9 +3,12 @@ from __future__ import annotations
 import sys
 from collections.abc import Sequence
 
+from dotenv import load_dotenv
 from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
+
+load_dotenv()
 
 
 def gather_cli_overrides(args: Sequence[str]) -> list[str]:
@@ -38,10 +41,10 @@ def load_config(
     return cfg
 
 
-cfg = load_config(
-    config_dir="../../../conf",
+CONFIG = load_config(
+    config_dir="../conf",
     config_name="config",
     overrides=gather_cli_overrides(sys.argv[1:]),
 )
 
-__all__ = ["cfg"]
+__all__ = ["CONFIG"]

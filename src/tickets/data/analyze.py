@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 from datetime import timedelta
 from typing import Final
 
@@ -10,7 +9,6 @@ import pandas as pd
 from pandas.api.types import is_timedelta64_dtype
 
 from tickets.schemas.events import (
-    DataLoadOfflineEvent,
     DataResTimeStatsEvent,
     DataSatScoreStatsEvent,
     DataStatsSaveEvent,
@@ -23,13 +21,9 @@ from tickets.schemas.metrics import (
     TimedeltaMetric,
 )
 from tickets.schemas.ticket import CustomerSentiment
-
-from ..utils.config_util import cfg
-from ..utils.io_util import data_logger, s3_client
-
-OFFLINE_PATH: Final[str] = cfg.data.offline_file
-BUCKET_NAME: Final[str] = cfg.data.bucket
-METRICS_PATH: Final[str] = cfg.data.metrics_file
+from tickets.utils.config_util import CONFIG
+from tickets.utils.io_util import s3_client
+from tickets.utils.log_util import DATA_LOGGER
 
 SENTIMENT_COLUMN: Final[str] = "customer_sentiment"
 RESOLVED_AT_COLUMN: Final[str] = "resolved_at"
@@ -46,38 +40,18 @@ REQUIRED_COLUMNS = [
 ]
 
 
-class OfflineMetricsAnalyzer:
+class TicketsAnalyzer:
     """Compute response-time and satisfaction metrics for offline ticket data."""
 
-    def __init__(self, offline_df: pd.DataFrame) -> None:
-        missing_columns = set(REQUIRED_COLUMNS) - set(offline_df.columns)
+    def __init__(self, tickets_df: pd.DataFrame) -> None:
+        missing_columns = set(REQUIRED_COLUMNS) - set(tickets_df.columns)
         if missing_columns:
             msg = f"Offline dataframe missing requiredcolumns: {sorted(missing_columns)}"
-            data_logger.error(msg)
+            DATA_LOGGER.error(msg)
             raise KeyError(msg)
         self.analysis_res: AnalysisRes
-        self.df = offline_df.loc[:, REQUIRED_COLUMNS].copy()
+        self.df = tickets_df.loc[:, REQUIRED_COLUMNS].copy()
         self.df[RES_TIME_COLUMN] = self.df[RESOLVED_AT_COLUMN] - self.df[CREATED_AT_COLUMN]
-
-    @classmethod
-    def from_s3(cls) -> OfflineMetricsAnalyzer:
-        """Load the offline ticket dataframe from S3 and return an analyzer instance."""
-
-        obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=OFFLINE_PATH)
-        body = obj["Body"].read()
-        offline_df = pd.read_parquet(io.BytesIO(body))
-        data_logger.info("Loaded {} offline records from S3.", offline_df.shape[0])
-        DataLoadOfflineEvent(
-            feature_group="offline_ticket_metrics",
-            storage_path=OFFLINE_PATH,
-            records_loaded=int(offline_df.shape[0]),
-            cache_hit=False,
-            metadata={
-                "bucket": BUCKET_NAME,
-                "columns": list(offline_df.columns),
-            },
-        ).emit()
-        return cls(offline_df)
 
     def save_metrics_to_s3(
         self,
@@ -87,15 +61,17 @@ class OfflineMetricsAnalyzer:
         if self.analysis_res is None:
             self.analyze()
         s3_client.put_object(
-            Bucket=BUCKET_NAME,
-            Key=METRICS_PATH,
+            Bucket=CONFIG.data.bucket,
+            Key=CONFIG.data.metrics_file,
             Body=self.analysis_res.model_dump_json(),
             ContentType="application/json",
             # Optional hardening:
         )
-        data_logger.info(f"Persisted offline analysis metrics to S3 at key {METRICS_PATH}.")
+        DATA_LOGGER.info(
+            "Persisted offline analysis metrics" f"to S3 at key {CONFIG.data.metrics_file}."
+        )
         DataStatsSaveEvent(
-            destination_uri=METRICS_PATH,
+            destination_uri=CONFIG.data.metrics_file,
             metric_names=[
                 "res_time_all",
                 "sat_score_all",
@@ -103,7 +79,7 @@ class OfflineMetricsAnalyzer:
                 "sat_score_by_senti",
             ],
             records_written=1,
-            metadata={"bucket": BUCKET_NAME},
+            metadata={"bucket": CONFIG.data.bucket},
         ).emit()
 
     @staticmethod
@@ -112,7 +88,7 @@ class OfflineMetricsAnalyzer:
 
         clean_series = series.dropna()
         if clean_series.empty:
-            data_logger.warning(
+            DATA_LOGGER.warning(
                 "Timedelta metric computation requestedon empty series; returning zeros."
             )
             zero_delta = timedelta()
@@ -125,7 +101,7 @@ class OfflineMetricsAnalyzer:
 
         if not is_timedelta64_dtype(clean_series):
             msg = "Timedelta series required for timedelta metric computation."
-            data_logger.error(msg)
+            DATA_LOGGER.error(msg)
             raise TypeError(msg)
 
         numeric_series = clean_series.dt.total_seconds()
@@ -145,7 +121,7 @@ class OfflineMetricsAnalyzer:
         clean_series = pd.to_numeric(series.dropna(), errors="coerce")
         clean_series = clean_series.dropna()
         if clean_series.empty:
-            data_logger.warning(
+            DATA_LOGGER.warning(
                 "Numeric metric computation requested on empty series; returning zeros."
             )
             return NumberMetric(avg=0.0, p50=0.0, P75=0.0, p90=0.0)
@@ -176,9 +152,9 @@ class OfflineMetricsAnalyzer:
         metrics: dict[CustomerSentiment, ResponseTimeStats] = {}
         for sentiment_value, segment in grouped:
             try:
-                sentiment = CustomerSentiment(sentiment_value)
+                sentiment = CustomerSentiment(str(sentiment_value))
             except ValueError:
-                data_logger.warning(
+                DATA_LOGGER.warning(
                     "Skipping response time aggregation for unknown sentiment {}.",
                     sentiment_value,
                 )
@@ -198,9 +174,9 @@ class OfflineMetricsAnalyzer:
         metrics: dict[CustomerSentiment, SatisfactionScoreStats] = {}
         for sentiment_value, segment in grouped:
             try:
-                sentiment = CustomerSentiment(sentiment_value)
+                sentiment = CustomerSentiment(str(sentiment_value))
             except ValueError:
-                data_logger.warning(
+                DATA_LOGGER.warning(
                     "Skipping satisfaction score aggregation for unknown sentiment {}.",
                     sentiment_value,
                 )
@@ -246,8 +222,3 @@ class OfflineMetricsAnalyzer:
         )
         self.analysis_res = analysis_res
         return analysis_res
-
-
-offline_analyzer = OfflineMetricsAnalyzer.from_s3()
-
-__all__ = ["OfflineMetricsAnalyzer", "offline_analyzer"]

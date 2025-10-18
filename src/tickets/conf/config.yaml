@@ -1,0 +1,23 @@
+defaults:
+  - data: minio
+  - dnn: defaults
+  - xgboost: defaults
+  - logging: defaults
+  - tfidf: defaults
+  - _self_
+
+
+project_name: tickets
+seed: 42
+
+embeddings:
+  model_name: all-MiniLM-L6-v2
+
+redis_host: ${oc.env:REDIS_HOST,localhost}
+redis_port: ${oc.env:REDIS_PORT,6379}
+redis_password: ${oc.env:REDIS_PASSWORD,password}
+
+split:
+  - train: 0.7
+  - val: 0.15
+  - test: 0.15

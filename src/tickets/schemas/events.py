@@ -4,20 +4,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field, NonNegativeFloat
 
-from ..utils.io_util import event_logger
+from tickets.utils.log_util import EVENT_LOGGER
 
 
 class EventType(StrEnum):
-    DATA_LOAD_RAW = "Data Load (Raw)"
+    DATA_LOAD_S3 = "Load Data from S3"
+    DATA_SAVE_S3 = "Save Data to S3"
 
-    DATA_LOAD_BRONZE = "Data Load (Bronze)"
-    DATA_SAVE_BRONZE = "Data Save (Bronze)"
-
-    DATA_SAVE_OFFLINE = "Data Save (Offline Store)"
-    DATA_LOAD_OFFLINE = "Data Load (Offline Store)"
-
-    DATA_LOAD_ONLINE = "Data Load (Online Store)"
-    DATA_SAVE_ONLNE = "Data Save (Online Store)"
+    DATA_SAVE_REDIS = "Save Data to Redis"
 
     DATA_RES_TIME_STATS = "Data Metrics (Resolution Time)"
     DATA_SAT_SCORE_STATS = "Data Metrics (Satisfaction Score)"
@@ -54,87 +48,37 @@ class BaseEvent(BaseModel):
     def emit(self, *, level: str = "INFO") -> dict[str, Any]:
         """Emit the event to the configured Loguru sinks and return the payload."""
         payload = self.model_dump()
-        event_logger.log(level, payload)
+        EVENT_LOGGER.log(level, payload)
         return payload
 
 
-class DataLoadRawEvent(BaseEvent):
-    """Event emitted when raw ticket data is ingested from the landing zone."""
-
-    event_type: EventType = EventType.DATA_LOAD_RAW
-    source_uri: str = Field(..., description="URI pointing to the raw JSON payload.")
-    records_loaded: int = Field(..., ge=0, description="Number of ticket records ingested.")
-    duration_ms: int = Field(
-        ..., ge=0, description="Latency of the ingestion step in milliseconds."
-    )
-    warnings: list[str] = Field(
-        default_factory=list, description="Any non-blocking issues observed during ingestion."
-    )
-
-
-class DataLoadBronzeEvent(BaseEvent):
-    """Event emitted when curated bronze-layer data is read from storage."""
-
-    event_type: EventType = EventType.DATA_LOAD_BRONZE
-    table_uri: str = Field(..., description="Location of the bronze dataset.")
-    records_loaded: int = Field(..., ge=0, description="Number of rows read from the bronze table.")
-
-
-class DataSaveBronzeEvent(BaseEvent):
-    """Event emitted after the bronze dataset has been materialized."""
-
-    event_type: EventType = EventType.DATA_SAVE_BRONZE
-    table_uri: str = Field(..., description="Destination path of the bronze dataset.")
-    records_written: int = Field(
-        ..., ge=0, description="Number of rows persisted to the bronze table."
-    )
-    duration_ms: int = Field(
-        ..., ge=0, description="Latency of the persistence step in milliseconds."
-    )
-
-
-class DataSaveOfflineEvent(BaseEvent):
-    """Event emitted when offline feature data is persisted to the feature store."""
-
-    event_type: EventType = EventType.DATA_SAVE_OFFLINE
-    feature_group: str = Field(
-        ..., description="Identifier of the feature group being materialized."
-    )
-    storage_path: str = Field(..., description="Offline store path, typically a Parquet location.")
-    records_written: int = Field(..., ge=0, description="Number of feature rows written.")
-    feature_names: list[str] = Field(..., description="List of features included in this batch.")
-
-
-class DataLoadOfflineEvent(BaseEvent):
-    """Event emitted when offline feature data is loaded for training or validation."""
-
-    event_type: EventType = EventType.DATA_LOAD_OFFLINE
-    feature_group: str = Field(..., description="Identifier of the feature group being loaded.")
-    storage_path: str = Field(..., description="Offline store path that was accessed.")
-    records_loaded: int = Field(..., ge=0, description="Number of feature rows retrieved.")
-    cache_hit: bool = Field(..., description="Indicates whether the data was served from cache.")
-
-
-class DataLoadOnlineEvent(BaseEvent):
-    """Event emitted when online features are retrieved for inference."""
-
-    event_type: EventType = EventType.DATA_LOAD_ONLINE
-    feature_group: str = Field(..., description="Online feature group identifier.")
-    entity_keys: list[str] = Field(..., description="Entities requested from the online store.")
-    features_returned: dict[str, Any] = Field(..., description="Features returned per entity.")
-    latency_ms: int = Field(..., ge=0, description="Latency of the online read in milliseconds.")
-
-
-class DataSaveOnlineEvent(BaseEvent):
+class DataLoadOnS3Event(BaseEvent):
     """Event emitted when features are written to the online store."""
 
-    event_type: EventType = EventType.DATA_SAVE_ONLNE
-    feature_group: str = Field(..., description="Online feature group identifier.")
-    entity_keys: list[str] = Field(..., description="Entities updated in the online store.")
+    event_type: EventType = EventType.DATA_SAVE_S3
+    feature_group: str = Field(..., description="feature group identifier.")
+    entity_key: str = Field(..., description="Entities loaded in the online store.")
+    records_loaded: int = Field(..., ge=0, description="Number of upserts performed.")
+
+
+# TODO
+class DataSaveToS3Event(BaseEvent):
+    """Event emitted when features are written to the online store."""
+
+    event_type: EventType = EventType.DATA_SAVE_S3
+    feature_group: str = Field(..., description="feature group identifier.")
+    entity_key: str = Field(..., description="Entities updated in the online store.")
     records_written: int = Field(..., ge=0, description="Number of upserts performed.")
-    ttl_seconds: int | None = Field(
-        default=None, description="Time-to-live applied to the online entries."
-    )
+
+
+class DataSaveToRedisEvent(BaseEvent):
+    """Event emitted when features are written to the online store."""
+
+    event_type: EventType = EventType.DATA_SAVE_REDIS
+    feature_group: str = Field(..., description="Feature group identifier.")
+    key: str = Field(..., description="Key describption.")
+    value: str = Field(..., description="Value describption.")
+    records_written: int = Field(..., ge=0, description="Number of upserts performed.")
 
 
 class DataResTimeStatsEvent(BaseEvent):
@@ -169,6 +113,7 @@ class DataStatsSaveEvent(BaseEvent):
     records_written: int = Field(..., ge=0, description="Number of metric rows written.")
 
 
+# TODO
 class DataStataReadEvent(BaseEvent):
     """Event emitted when statistics are read from persistent storage."""
 
@@ -183,7 +128,6 @@ class DataQaTimingEvent(BaseEvent):
 
     event_type: EventType = EventType.DATA_QA_TIMING
     check_name: str = Field(..., description="Identifier of the timing check that ran.")
-    duration_ms: int = Field(..., ge=0, description="Measured duration in milliseconds.")
     passed: bool = Field(..., description="Indicates if the timing check passed.")
 
 

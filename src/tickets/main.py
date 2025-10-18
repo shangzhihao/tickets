@@ -1,9 +1,11 @@
-from .data.runner import runner
-from .schemas.tasks import Task
+from tickets.data.runner import runner as data_runner
+from tickets.schemas.tasks import Task
 
 
 def main() -> None:
-    runner(Task.CHECK)
+    data_tasks = [Task.DATA_INGEST, Task.DATA_CHECK, Task.DATA_ANALYZE]
+    for data_task in data_tasks:
+        data_runner(data_task)
 
 
 if __name__ == "__main__":
