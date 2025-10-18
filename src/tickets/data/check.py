@@ -6,6 +6,7 @@ from typing import Final
 
 import pandas as pd
 from pandas import DataFrame, Series
+from prefect import task
 from pydantic import ValidationError
 
 from tickets.schemas.data_quality import DataQualityReport
@@ -19,7 +20,7 @@ from tickets.schemas.events import (
 )
 from tickets.schemas.ticket import Ticket
 from tickets.utils.config_util import CONFIG
-from tickets.utils.io_util import load_df_from_s3
+from tickets.utils.io_util import load_df_from_s3, save_df_to_s3
 from tickets.utils.log_util import DATA_LOGGER
 
 MAX_VIOLATIONS: Final[int] = 5
@@ -134,6 +135,7 @@ def build_report(
 def clean_dataset(df: DataFrame, invalid_mask: Series) -> DataFrame:
     """Return the cleaned dataset after removing rows flagged as invalid."""
     cleaned_df = df.loc[~invalid_mask].copy().reset_index(drop=True)
+
     DataQaCleanedEvent(
         dataset_uri=f"s3://{CONFIG.data.bucket}/{CONFIG.data.offline_file}",
         records_available=int(cleaned_df.shape[0]),
@@ -150,8 +152,10 @@ def clean_dataset(df: DataFrame, invalid_mask: Series) -> DataFrame:
     return cleaned_df
 
 
-def run_quality_checks(df: DataFrame) -> tuple[DataQualityReport, DataFrame]:
+@task
+def run_quality_checks() -> tuple[DataQualityReport, DataFrame]:
     """Execute all quality checks on the provided dataframe."""
+    df = load_df_from_s3(data_path=CONFIG.data.offline_file, group=__file__)
     schema_mask = check_schema(df)
     timing_mask = check_timing(df)
     business_mask = check_business_rules(df)
@@ -159,6 +163,7 @@ def run_quality_checks(df: DataFrame) -> tuple[DataQualityReport, DataFrame]:
 
     invalid_mask = schema_mask | timing_mask | business_mask | missing_mask
     cleaned_df = clean_dataset(df, invalid_mask)
+    save_df_to_s3(df=cleaned_df, data_path=CONFIG.data.clean_file, group=__file__)
     report = build_report(
         schema_mask=schema_mask,
         timing_mask=timing_mask,
@@ -169,10 +174,10 @@ def run_quality_checks(df: DataFrame) -> tuple[DataQualityReport, DataFrame]:
     return report, cleaned_df
 
 
-def check() -> None:
+def main() -> None:
     """Load the offline dataset, evaluate quality, and return the summary report."""
     df = load_df_from_s3(data_path=CONFIG.data.offline_file, group=__file__)
-    report, cleaned_df = run_quality_checks(df)
+    report, cleaned_df = run_quality_checks.fn()
     DATA_LOGGER.info(
         "ticket_quality summary=%s cleaned_rows=%s source_rows=%s",
         report.model_dump(),
@@ -184,4 +189,4 @@ def check() -> None:
 
 
 if __name__ == "__main__":
-    check()
+    main()

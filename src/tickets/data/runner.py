@@ -1,6 +1,6 @@
 from prefect import flow
 
-from tickets.data.check import check
+from tickets.data.check import run_quality_checks
 from tickets.data.ingest import ingest
 from tickets.schemas.tasks import Task
 
@@ -12,4 +12,4 @@ def runner(task: Task) -> None:
     elif task == Task.DATA_ANALYZE:
         pass
     elif task == Task.DATA_CHECK:
-        check()
+        run_quality_checks()
