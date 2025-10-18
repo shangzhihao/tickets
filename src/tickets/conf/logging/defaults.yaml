@@ -14,7 +14,7 @@ console_sink:
   enabled: true
   colorize: true
   format: "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level:<8}</level> | <cyan>{name}:{function}:{line}</cyan> | <level>{message}</level>"
-  level: WARNING
+  level: INFO
 
 backtrace: false
 diagnose: false

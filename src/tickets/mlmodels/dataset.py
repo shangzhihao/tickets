@@ -44,8 +44,8 @@ def chronological_split(
     frame: pd.DataFrame,
     *,
     time_column: str = "created_at",
-    train_ratio: float = 0.7,
-    validation_ratio: float = 0.15,
+    train_ratio: float = CONFIG.split.train,
+    validation_ratio: float = CONFIG.split.val,
 ) -> DatasetSplit:
     """Split frame chronologically into train/validation/test."""
 
@@ -99,14 +99,13 @@ def validate_feature_frame(
 class TorchDataSet(Dataset):
     def __init__(self, tickets: TicketDataSet) -> None:
         self.tickets = tickets
-        pass
 
     def __len__(self) -> int:
         return self.tickets.target_num_arr.shape[0]
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
-        x = torch.tensor(np.hstack(self.tickets.feature_arrs)[idx, :])
-        y = self.tickets.target_num_arr[idx][0]
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        x = torch.tensor(np.hstack(self.tickets.feature_arrs)[idx, :], dtype=torch.float32)
+        y = torch.tensor(self.tickets.target_num_arr[idx][0], dtype=torch.long)
         return x, y
 
 

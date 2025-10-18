@@ -18,6 +18,6 @@ redis_port: ${oc.env:REDIS_PORT,6379}
 redis_password: ${oc.env:REDIS_PASSWORD,password}
 
 split:
-  - train: 0.7
-  - val: 0.15
-  - test: 0.15
+  train: 0.7
+  val: 0.15
+  test: 0.15

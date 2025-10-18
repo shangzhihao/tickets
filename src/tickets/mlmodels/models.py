@@ -1,19 +1,22 @@
-"""XGBoost training utilities for ticket classification tasks."""
+"""Model training utilities for ticket classification tasks."""
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 
 import numpy as np
+import torch
 from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
+from torch.utils.data import DataLoader, Dataset
 from xgboost import XGBClassifier
 
-from tickets.mlmodels.dataset import TicketDataSet
+from tickets.mlmodels.dataset import TicketDataSet, chronological_split
 from tickets.utils.config_util import CONFIG
 from tickets.utils.io_util import load_df_from_s3
 from tickets.utils.log_util import ML_LOGGER
@@ -76,7 +79,7 @@ class XGBModel:
             )
             grid_search.fit(
                 self.train_x[sample_indices],
-                self.val_y[sample_indices],
+                self.train_y[sample_indices],
                 eval_set=[(self.val_x, self.val_y)],
                 verbose=False,
             )
@@ -116,10 +119,177 @@ class XGBModel:
         return self.model.predict(x)
 
 
-if __name__ == "__main__":
+class TicketClassifier(torch.nn.Module):
+    """Feed-forward neural network for ticket classification."""
+
+    def __init__(
+        self,
+        in_dim: int,
+        out_dim: int,
+    ) -> None:
+        super().__init__()
+        self.layers = torch.nn.Sequential(
+            torch.nn.Linear(in_features=in_dim, out_features=CONFIG.dnn.hidden),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(p=CONFIG.dnn.dropout),
+            torch.nn.Linear(in_features=CONFIG.dnn.hidden, out_features=out_dim),
+        )
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        """Compute logits for the provided feature batch."""
+
+        if inputs.dim() == 1:
+            inputs = inputs.unsqueeze(0)
+        return self.layers(inputs)
+
+
+class DNNTrainer:
+    """Pure-PyTorch trainer handling optimisation and validation loops."""
+
+    def __init__(
+        self,
+        model: TicketClassifier,
+        train_set: Dataset,
+        val_set: Dataset,
+    ) -> None:
+        self.device = torch.device(CONFIG.dnn.device)
+        self.model = model.to(self.device)
+        self.train_loader = DataLoader(
+            train_set, batch_size=int(CONFIG.dnn.batch_size), shuffle=True
+        )
+        self.val_loader = DataLoader(val_set, batch_size=int(CONFIG.dnn.batch_size), shuffle=False)
+        self.criterion = torch.nn.CrossEntropyLoss()
+        self.optimizer = torch.optim.Adam(params=self.model.parameters(), lr=float(CONFIG.dnn.lr))
+        self.max_epochs = int(CONFIG.dnn.epoch)
+        self.patience = int(CONFIG.dnn.patience)
+        self.best_state: dict[str, torch.Tensor] | None = None
+
+    def train(self) -> TicketClassifier:
+        """Train the classifier with early stopping on validation loss."""
+
+        best_val_loss = float("inf")
+        epochs_without_improvement = 0
+
+        for epoch in range(1, self.max_epochs + 1):
+            train_loss = self._train_epoch()
+            val_loss, val_accuracy = self._evaluate()
+
+            ML_LOGGER.info(
+                f"Epoch {epoch:.4f} | train_loss={train_loss:.4f}"
+                f"val_loss={val_loss:.4f} val_acc={val_accuracy:.4f}"
+            )
+
+            if val_loss + 1e-6 < best_val_loss:
+                best_val_loss = val_loss
+                epochs_without_improvement = 0
+                self.best_state = deepcopy(self.model.state_dict())
+            else:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= self.patience:
+                    ML_LOGGER.info(
+                        "Early stopping triggered after %d epochs without improvement.",
+                        epochs_without_improvement,
+                    )
+                    break
+
+        if self.best_state is not None:
+            self.model.load_state_dict(self.best_state)
+        self.validation_report_ = self._build_validation_report()
+        macro_f1 = self.validation_report_.get("macro avg", {}).get("f1-score")
+        if macro_f1 is not None:
+            ML_LOGGER.info("Validation macro F1 after training: %.4f", macro_f1)
+        return self.model
+
+    def _train_epoch(self) -> float:
+        """Run a single optimisation epoch."""
+
+        self.model.train()
+        cumulative_loss = 0.0
+        total_samples = 0
+
+        for features, labels in self.train_loader:
+            features = features.to(self.device)
+            labels = labels.to(self.device)
+            self.optimizer.zero_grad()
+            logits = self.model(features)
+            loss = self.criterion(logits, labels)
+            loss.backward()
+            self.optimizer.step()
+
+            batch_size = features.size(0)
+            cumulative_loss += loss.item() * batch_size
+            total_samples += batch_size
+
+        if total_samples == 0:
+            raise RuntimeError("No samples processed during training epoch.")
+        return cumulative_loss / total_samples
+
+    @torch.no_grad()
+    def _evaluate(self) -> tuple[float, float]:
+        """Evaluate the model on the validation set."""
+
+        self.model.eval()
+        cumulative_loss = 0.0
+        total_samples = 0
+        correct_predictions = 0
+
+        for features, labels in self.val_loader:
+            features = features.to(self.device)
+            labels = labels.to(self.device)
+            logits = self.model(features)
+            loss = self.criterion(logits, labels)
+
+            batch_size = features.size(0)
+            cumulative_loss += loss.item() * batch_size
+            total_samples += batch_size
+            predictions = torch.argmax(logits, dim=1)
+            correct_predictions += (predictions == labels).sum().item()
+
+        if total_samples == 0:
+            raise RuntimeError("No samples processed during validation epoch.")
+
+        return cumulative_loss / total_samples, correct_predictions / total_samples
+
+    @torch.no_grad()
+    def _build_validation_report(self) -> dict[str, dict[str, float]]:
+        """Generate a classification report on the validation dataset."""
+
+        targets: list[int] = []
+        predictions: list[int] = []
+        self.model.eval()
+
+        for features, labels in self.val_loader:
+            if features.numel() == 0:
+                continue
+            logits = self.model(features.to(self.device))
+            preds = torch.argmax(logits, dim=1)
+            predictions.extend(preds.cpu().tolist())
+            targets.extend(labels.cpu().tolist())
+
+        if not targets:
+            raise RuntimeError("Validation report cannot be produced without samples.")
+        return classification_report(targets, predictions, output_dict=True)
+
+
+def main() -> None:
     tickets = load_df_from_s3(CONFIG.data.online_file, group=__file__)
     dataset = TicketDataSet(df=tickets, target_col="category")
     x, y = dataset.get_xgb_dataset()
     xgb = XGBModel(x, y, x, y)
     xgb.train()
     print(xgb.validation_report_)
+
+
+if __name__ == "__main__":
+    tickets = load_df_from_s3(CONFIG.data.online_file, group=__file__)
+    splits = chronological_split(tickets)
+    train_set = TicketDataSet(df=splits.train, target_col="category")
+    val_set = TicketDataSet(df=splits.validation, target_col="category")
+    train_dataset = train_set.get_torch_dataset()
+    val_dataset = val_set.get_torch_dataset()
+    feature_dim = train_dataset[0][0].shape[0]
+    num_classes = int(train_dataset.tickets.target_onehot_arr.shape[1])
+    classifier = TicketClassifier(in_dim=feature_dim, out_dim=num_classes)
+    trainer = DNNTrainer(model=classifier, train_set=train_dataset, val_set=val_dataset)
+    trainer.train()
+    print(trainer.validation_report_)  # type: ignore

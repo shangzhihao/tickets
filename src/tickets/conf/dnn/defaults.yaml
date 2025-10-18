@@ -1,0 +1,7 @@
+dropout: 0.1
+lr: 1e-5
+epoch: 3
+hidden: 128
+batch_size: 1024
+patience: 5
+device: mps
