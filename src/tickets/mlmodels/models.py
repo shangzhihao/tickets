@@ -35,16 +35,12 @@ class ModelResult:
 
 class XGBTicketClassifer:
     def __init__(
-        self,
-        train_x: np.ndarray,
-        train_y: np.ndarray,
-        val_x: np.ndarray,
-        val_y: np.ndarray,
+        self, train_set: tuple[np.ndarray, np.ndarray], val_set: tuple[np.ndarray, np.ndarray]
     ) -> None:
-        self.train_x = train_x.copy()
-        self.train_y = train_y.copy()
-        self.val_x = val_x.copy()
-        self.val_y = val_y.copy()
+        self.train_x = train_set[0].copy()
+        self.train_y = train_set[1].copy()
+        self.val_x = val_set[0].copy()
+        self.val_y = val_set[1].copy()
         self.validation_report_: ResultReport | None = None
         num_class = len(np.unique(self.train_y))
         self.model = XGBClassifier(num_class=num_class, **CONFIG.xgboost.gbrt_params)
@@ -285,17 +281,25 @@ class DNNTrainer:
         )
 
 
-def main() -> None:
+def main_xgb() -> None:
     tickets = load_df_from_s3(CONFIG.data.online_file, group=__file__)
-    dataset = TicketDataSet(df=tickets, target_col="category")
-    x, y = dataset.get_xgb_dataset()
-    xgb = XGBTicketClassifer(x, y, x, y)
+    splits = chronological_split(tickets)
+
+    train_data = splits.train
+    val_data = splits.validation
+    _ = splits.test
+
+    train_tickets = TicketDataSet(df=train_data, target_col="category")
+    val_tickets = TicketDataSet(df=val_data, target_col="category")
+    train_set = train_tickets.get_xgb_dataset()
+    val_set = val_tickets.get_xgb_dataset()
+    xgb = XGBTicketClassifer(train_set, val_set)
     xgb.train()
     if xgb.validation_report_ is not None:
         print(xgb.validation_report_.to_dict())
 
 
-if __name__ == "__main__":
+def main_dnn() -> None:
     tickets = load_df_from_s3(CONFIG.data.online_file, group=__file__)
     splits = chronological_split(tickets)
     train_set = TicketDataSet(df=splits.train, target_col="category")
@@ -303,9 +307,15 @@ if __name__ == "__main__":
     train_dataset = train_set.get_torch_dataset()
     val_dataset = val_set.get_torch_dataset()
     feature_dim = train_dataset[0][0].shape[0]
+    # FIXME: this will not work for subcategory
     num_classes = int(train_dataset.tickets.target_onehot_arr.shape[1])
     classifier = DNNTicketClassifier(in_dim=feature_dim, out_dim=num_classes)
     trainer = DNNTrainer(model=classifier, train_set=train_dataset, val_set=val_dataset)
     trainer.train()
     if trainer.validation_report_ is not None:
         print(trainer.validation_report_.to_dict())
+
+
+if __name__ == "__main__":
+    main_xgb()
+    main_dnn()

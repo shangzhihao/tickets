@@ -151,9 +151,13 @@ class TicketDataSet:
         return TorchDataSet(self)
 
 
+def get_df_by_cat(df: pd.DataFrame, cat: str) -> pd.DataFrame:
+    res = df[df["category"] == cat]
+    return res.copy()
+
+
 if __name__ == "__main__":
     online_df = load_df_from_s3(data_path=CONFIG.data.online_file, group=__file__)
     tickets = TicketDataSet(df=online_df, target_col="category")
     xbg_data = tickets.get_xgb_dataset()
     torch_data = tickets.get_torch_dataset()
-    pass

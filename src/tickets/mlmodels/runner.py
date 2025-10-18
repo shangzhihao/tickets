@@ -1,4 +1,5 @@
-from tickets.mlmodels.dataset import chronological_split
+from tickets.mlmodels.dataset import TicketDataSet, chronological_split
+from tickets.mlmodels.models import XGBTicketClassifer
 from tickets.schemas.tasks import Task
 from tickets.utils.config_util import CONFIG
 from tickets.utils.io_util import load_df_from_s3
@@ -9,10 +10,15 @@ offline_frame = load_df_from_s3(
 )
 splits = chronological_split(offline_frame)
 
-training_data = splits.train
-validation_data = splits.validation
+train_data = splits.train
+val_data = splits.validation
 test_data = splits.test
 
 
 def runner(task: Task) -> None:
-    pass
+    train_set = TicketDataSet(df=train_data, target_col="category")
+    val_set = TicketDataSet(df=val_data, target_col="category")
+
+    xgb = XGBTicketClassifer(train_set.get_xgb_dataset(), val_set.get_xgb_dataset())
+    xgb.train()
+    print(xgb.validation_report_)
