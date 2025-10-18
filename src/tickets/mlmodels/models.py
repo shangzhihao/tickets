@@ -9,7 +9,6 @@ import numpy as np
 import torch
 from numpy.typing import NDArray
 from omegaconf import OmegaConf
-from sklearn.metrics import classification_report
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
@@ -17,6 +16,7 @@ from torch.utils.data import DataLoader, Dataset
 from xgboost import XGBClassifier
 
 from tickets.mlmodels.dataset import TicketDataSet, chronological_split
+from tickets.mlmodels.evaluate import ResultReport
 from tickets.utils.config_util import CONFIG
 from tickets.utils.io_util import load_df_from_s3
 from tickets.utils.log_util import ML_LOGGER
@@ -30,10 +30,10 @@ class ModelResult:
     pipeline: Pipeline
     label_encoder: LabelEncoder
     classes: tuple[str, ...]
-    metrics: dict[str, dict[str, float]]
+    metrics: ResultReport
 
 
-class XGBModel:
+class XGBTicketClassifer:
     def __init__(
         self,
         train_x: np.ndarray,
@@ -45,6 +45,7 @@ class XGBModel:
         self.train_y = train_y.copy()
         self.val_x = val_x.copy()
         self.val_y = val_y.copy()
+        self.validation_report_: ResultReport | None = None
         num_class = len(np.unique(self.train_y))
         self.model = XGBClassifier(num_class=num_class, **CONFIG.xgboost.gbrt_params)
 
@@ -98,8 +99,12 @@ class XGBModel:
         )
 
         validation_predictions = self.model.predict(self.val_x)
-        report = classification_report(self.val_y, validation_predictions, output_dict=True)
-        ML_LOGGER.info("Validation macro F1: %.4f", report["macro avg"]["f1-score"])
+        report = ResultReport.from_predictions(
+            model_name="xgb_ticket_classifier",
+            y_true=self.val_y,
+            y_pred=validation_predictions,
+        )
+        ML_LOGGER.info("Validation macro F1: %.4f", report.macro_f1)
         self.validation_report_ = report
         return self.model
 
@@ -119,7 +124,7 @@ class XGBModel:
         return self.model.predict(x)
 
 
-class TicketClassifier(torch.nn.Module):
+class DNNTicketClassifier(torch.nn.Module):
     """Feed-forward neural network for ticket classification."""
 
     def __init__(
@@ -148,7 +153,7 @@ class DNNTrainer:
 
     def __init__(
         self,
-        model: TicketClassifier,
+        model: DNNTicketClassifier,
         train_set: Dataset,
         val_set: Dataset,
     ) -> None:
@@ -163,8 +168,9 @@ class DNNTrainer:
         self.max_epochs = int(CONFIG.dnn.epoch)
         self.patience = int(CONFIG.dnn.patience)
         self.best_state: dict[str, torch.Tensor] | None = None
+        self.validation_report_: ResultReport | None = None
 
-    def train(self) -> TicketClassifier:
+    def train(self) -> DNNTicketClassifier:
         """Train the classifier with early stopping on validation loss."""
 
         best_val_loss = float("inf")
@@ -175,8 +181,11 @@ class DNNTrainer:
             val_loss, val_accuracy = self._evaluate()
 
             ML_LOGGER.info(
-                f"Epoch {epoch:.4f} | train_loss={train_loss:.4f}"
-                f"val_loss={val_loss:.4f} val_acc={val_accuracy:.4f}"
+                "Epoch %d | train_loss=%.4f val_loss=%.4f val_acc=%.4f",
+                epoch,
+                train_loss,
+                val_loss,
+                val_accuracy,
             )
 
             if val_loss + 1e-6 < best_val_loss:
@@ -195,9 +204,10 @@ class DNNTrainer:
         if self.best_state is not None:
             self.model.load_state_dict(self.best_state)
         self.validation_report_ = self._build_validation_report()
-        macro_f1 = self.validation_report_.get("macro avg", {}).get("f1-score")
-        if macro_f1 is not None:
-            ML_LOGGER.info("Validation macro F1 after training: %.4f", macro_f1)
+        ML_LOGGER.info(
+            "Validation macro F1 after training: %.4f",
+            self.validation_report_.macro_f1,
+        )
         return self.model
 
     def _train_epoch(self) -> float:
@@ -251,8 +261,8 @@ class DNNTrainer:
         return cumulative_loss / total_samples, correct_predictions / total_samples
 
     @torch.no_grad()
-    def _build_validation_report(self) -> dict[str, dict[str, float]]:
-        """Generate a classification report on the validation dataset."""
+    def _build_validation_report(self) -> ResultReport:
+        """Generate a structured validation report on the validation dataset."""
 
         targets: list[int] = []
         predictions: list[int] = []
@@ -268,16 +278,21 @@ class DNNTrainer:
 
         if not targets:
             raise RuntimeError("Validation report cannot be produced without samples.")
-        return classification_report(targets, predictions, output_dict=True)
+        return ResultReport.from_predictions(
+            model_name="dnn_ticket_classifier",
+            y_true=targets,
+            y_pred=predictions,
+        )
 
 
 def main() -> None:
     tickets = load_df_from_s3(CONFIG.data.online_file, group=__file__)
     dataset = TicketDataSet(df=tickets, target_col="category")
     x, y = dataset.get_xgb_dataset()
-    xgb = XGBModel(x, y, x, y)
+    xgb = XGBTicketClassifer(x, y, x, y)
     xgb.train()
-    print(xgb.validation_report_)
+    if xgb.validation_report_ is not None:
+        print(xgb.validation_report_.to_dict())
 
 
 if __name__ == "__main__":
@@ -289,7 +304,8 @@ if __name__ == "__main__":
     val_dataset = val_set.get_torch_dataset()
     feature_dim = train_dataset[0][0].shape[0]
     num_classes = int(train_dataset.tickets.target_onehot_arr.shape[1])
-    classifier = TicketClassifier(in_dim=feature_dim, out_dim=num_classes)
+    classifier = DNNTicketClassifier(in_dim=feature_dim, out_dim=num_classes)
     trainer = DNNTrainer(model=classifier, train_set=train_dataset, val_set=val_dataset)
     trainer.train()
-    print(trainer.validation_report_)  # type: ignore
+    if trainer.validation_report_ is not None:
+        print(trainer.validation_report_.to_dict())
