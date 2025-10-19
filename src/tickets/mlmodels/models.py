@@ -17,6 +17,7 @@ from xgboost import XGBClassifier
 
 from tickets.mlmodels.dataset import TicketDataSet, chronological_split
 from tickets.mlmodels.evaluate import ResultReport
+from tickets.mlmodels.transformer import CategoriesTransformer
 from tickets.utils.config_util import CONFIG
 from tickets.utils.io_util import load_df_from_s3
 from tickets.utils.log_util import ML_LOGGER
@@ -156,9 +157,17 @@ class DNNTrainer:
         self.device = torch.device(CONFIG.dnn.device)
         self.model = model.to(self.device)
         self.train_loader = DataLoader(
-            train_set, batch_size=int(CONFIG.dnn.batch_size), shuffle=True
+            train_set,
+            batch_size=int(CONFIG.dnn.batch_size),
+            shuffle=True,
+            num_workers=int(CONFIG.dnn.dl_num_worker),
         )
-        self.val_loader = DataLoader(val_set, batch_size=int(CONFIG.dnn.batch_size), shuffle=False)
+        self.val_loader = DataLoader(
+            val_set,
+            batch_size=int(CONFIG.dnn.batch_size),
+            shuffle=False,
+            num_workers=int(CONFIG.dnn.dl_num_worker),
+        )
         self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(params=self.model.parameters(), lr=float(CONFIG.dnn.lr))
         self.max_epochs = int(CONFIG.dnn.epoch)
@@ -288,10 +297,14 @@ def main_xgb() -> None:
     train_data = splits.train
     val_data = splits.validation
     _ = splits.test
-
-    train_tickets = TicketDataSet(df=train_data, target_col="category")
-    val_tickets = TicketDataSet(df=val_data, target_col="category")
+    cat_transformer = CategoriesTransformer(train_data)
+    train_tickets = TicketDataSet(
+        df=train_data, target_col="category", cat_transformer=cat_transformer
+    )
+    val_tickets = TicketDataSet(df=val_data, target_col="category", cat_transformer=cat_transformer)
+    # train_set[0].shape is (7000, 219), train_set[1].shape is (7000, 0)
     train_set = train_tickets.get_xgb_dataset()
+    # val_set[0].shape is (1500, 219), val_set[1].shape is (1500, 0)
     val_set = val_tickets.get_xgb_dataset()
     xgb = XGBTicketClassifer(train_set, val_set)
     xgb.train()
@@ -302,15 +315,23 @@ def main_xgb() -> None:
 def main_dnn() -> None:
     tickets = load_df_from_s3(CONFIG.data.online_file, group=__file__)
     splits = chronological_split(tickets)
-    train_set = TicketDataSet(df=splits.train, target_col="category")
-    val_set = TicketDataSet(df=splits.validation, target_col="category")
-    train_dataset = train_set.get_torch_dataset()
-    val_dataset = val_set.get_torch_dataset()
-    feature_dim = train_dataset[0][0].shape[0]
-    # FIXME: this will not work for subcategory
-    num_classes = int(train_dataset.tickets.target_onehot_arr.shape[1])
+    target_col = "category"
+
+    train_data = splits.train
+    val_data = splits.validation
+    _ = splits.test
+    cat_transformer = CategoriesTransformer(train_data)
+    train_tickets = TicketDataSet(
+        df=train_data, target_col=target_col, cat_transformer=cat_transformer
+    )
+    val_tickets = TicketDataSet(df=val_data, target_col=target_col, cat_transformer=cat_transformer)
+    train_set = train_tickets.get_torch_dataset()
+    val_set = val_tickets.get_torch_dataset()
+
+    feature_dim = train_set[0][0].shape[0]
+    num_classes = cat_transformer.get_num_class(target_col)
     classifier = DNNTicketClassifier(in_dim=feature_dim, out_dim=num_classes)
-    trainer = DNNTrainer(model=classifier, train_set=train_dataset, val_set=val_dataset)
+    trainer = DNNTrainer(model=classifier, train_set=train_set, val_set=val_set)
     trainer.train()
     if trainer.validation_report_ is not None:
         print(trainer.validation_report_.to_dict())

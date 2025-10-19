@@ -109,3 +109,69 @@ class ResultReport:
         if self.target_names is not None:
             payload["target_names"] = self.target_names
         return payload
+
+    def __str__(self) -> str:
+        """Return a human friendly, tabular representation of the report."""
+
+        lines: list[str] = [f"ResultReport(model={self.model_name})"]
+
+        ordered_rows: list[tuple[str, dict[str, float]]] = []
+        base_rows: list[tuple[str, dict[str, float]]] = []
+        summary_rows: list[tuple[str, dict[str, float]]] = []
+        summary_labels = {"macro avg", "weighted avg"}
+
+        for label, metrics in self.per_label.items():
+            if label in summary_labels:
+                summary_rows.append((label, metrics))
+            else:
+                base_rows.append((label, metrics))
+
+        if self.target_names is not None:
+            order_map = {label: idx for idx, label in enumerate(self.target_names)}
+            base_rows.sort(key=lambda item: order_map.get(item[0], len(order_map)))
+        else:
+            base_rows.sort(key=lambda item: item[0])
+
+        summary_rows.sort(key=lambda item: item[0])
+        ordered_rows.extend(base_rows)
+        ordered_rows.extend(summary_rows)
+
+        if not ordered_rows:
+            lines.append("No per-label metrics available.")
+        else:
+            label_width = max(len("label"), max(len(label) for label, _ in ordered_rows))
+            header = (
+                f"{'label':<{label_width}}  "
+                f"{'precision':>9}  "
+                f"{'recall':>7}  "
+                f"{'f1-score':>9}  "
+                f"{'support':>7}"
+            )
+            lines.append(header)
+            lines.append("-" * len(header))
+
+            for label, metrics in ordered_rows:
+                precision = metrics.get("precision")
+                recall = metrics.get("recall")
+                f1 = metrics.get("f1-score")
+                support = metrics.get("support")
+
+                precision_str = f"{precision:.3f}" if precision is not None else "n/a"
+                recall_str = f"{recall:.3f}" if recall is not None else "n/a"
+                f1_str = f"{f1:.3f}" if f1 is not None else "n/a"
+                support_str = f"{int(support):d}" if support is not None else "n/a"
+
+                lines.append(
+                    f"{label:<{label_width}}  "
+                    f"{precision_str:>9}  "
+                    f"{recall_str:>7}  "
+                    f"{f1_str:>9}  "
+                    f"{support_str:>7}"
+                )
+
+        accuracy = self.overall.get("accuracy")
+        if accuracy is not None:
+            lines.append("")
+            lines.append(f"accuracy: {accuracy:.3f}")
+
+        return "\n".join(lines)

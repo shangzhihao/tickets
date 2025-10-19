@@ -5,3 +5,4 @@ hidden: 128
 batch_size: 1024
 patience: 5
 device: mps
+dl_num_worker: 7
