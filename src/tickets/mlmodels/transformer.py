@@ -9,7 +9,7 @@ with the RORO principle followed throughout the project.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from enum import Enum
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -17,7 +17,6 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 from tickets.schemas.ticket import ENUM_FIELD_TYPES
 from tickets.utils.config_util import CONFIG
-from tickets.utils.log_util import ML_LOGGER
 
 TFIDF = TfidfVectorizer(
     min_df=CONFIG.tfidf.min_df,
@@ -55,55 +54,97 @@ def bool_transformer(feature: pd.DataFrame) -> np.ndarray:
     return feature.astype(int).to_numpy()
 
 
-def cat_onehot_transformer(feature: pd.Series, enum_type: type[Enum]) -> np.ndarray:
-    """Convert a categorical enum-backed series to a one-hot encoded matrix."""
-    categories = list(enum_type)
-    num_categories = len(categories)
-    one_hot = np.zeros((feature.shape[0], num_categories), dtype=int)
+class CategoriesTransformer:
+    """Encode categorical features using stable one-hot and ordinal projections."""
 
-    for row_index, raw_value in enumerate(feature):
-        try:
-            enum_item = enum_type(raw_value)
-        except (KeyError, ValueError, TypeError):
-            ML_LOGGER.warning(f"Unknown category '{raw_value}' encountered in categorical feature.")
-            # NOTE: This branch currently tries to flag an unknown bucket but the array does not
-            # reserve an extra column. The behaviour should be revisited when adding fallback bins.
-            continue
-        category_index = categories.index(enum_item)
-        one_hot[row_index, category_index] = 1
+    def __init__(self, df: pd.DataFrame, *, needs_unknown: bool = False) -> None:
+        self._df = df.copy()
+        enum_columns = sorted(col for col in ENUM_FIELD_TYPES if col in self._df.columns)
+        self.cols = enum_columns
+        self.needs_unknown = needs_unknown
+        self.col_value_map: dict[str, list[Any]] = {}
+        self.col_num_class_map: dict[str, int] = {}
+        for col in self.cols:
+            series = self._df[col]
+            values = series.dropna().drop_duplicates().tolist()
+            if self.needs_unknown and "unknown" not in values:
+                values.append("unknown")
+            self.col_value_map[col] = values
+            self.col_num_class_map[col] = len(values)
 
-    return one_hot
+    def get_num_class(self, col: str) -> int:
+        if col in self.col_num_class_map:
+            return self.col_num_class_map[col]
+        raise ValueError(f"{col} is not encoded")
 
+    def one_hot(self, df: pd.DataFrame | None) -> np.ndarray:
+        """Return one-hot encoded representation for the cached or supplied dataframe."""
+        frame, columns = self._get_aligned_frame(df)
+        encoded_columns: list[np.ndarray] = []
 
-def cats_onehot_transformer(features: pd.DataFrame) -> np.ndarray:
-    """Apply `cat_onehot_transformer` column-wise and horizontally stack the results."""
-    cat_vecs = []
-    for cat_col in features.columns:
-        enum_type = ENUM_FIELD_TYPES[cat_col]
-        cat_vec = cat_onehot_transformer(features[cat_col], enum_type)
-        cat_vecs.append(cat_vec)
-    return np.hstack(cat_vecs)
+        for col in columns:
+            categories = self.col_value_map[col]
+            series = self._sanitize_series(frame[col], categories)
+            categorical = pd.Categorical(series, categories=categories)
+            encoded = pd.get_dummies(categorical, dtype=np.int64)
+            encoded_columns.append(encoded.to_numpy())
 
+        if not encoded_columns:
+            return np.empty((frame.shape[0], 0), dtype=np.int64)
 
-def cat_num_transformer(feature: pd.Series, enum_type: type[Enum]) -> np.ndarray:
-    """Map a categorical enum-backed series into ordinal indices."""
+        return np.concatenate(encoded_columns, axis=1)
 
-    def cat_to_num(v: str | int) -> int:
-        cats = list(enum_type)
-        enum_cat = enum_type(v)
-        return cats.index(enum_cat)
+    def number(self, df: pd.DataFrame | None) -> np.ndarray:
+        """Return ordinal encoded representation for the cached or supplied dataframe."""
+        frame, columns = self._get_aligned_frame(df)
+        encoded_columns: list[np.ndarray] = []
 
-    return feature.apply(cat_to_num).to_numpy().reshape(-1, 1)
+        for col in columns:
+            categories = self.col_value_map[col]
+            mapping = {value: idx for idx, value in enumerate(categories)}
+            series = self._sanitize_series(frame[col], categories)
+            encoded_columns.append(series.map(mapping).to_numpy(dtype=np.int64))
 
+        if not encoded_columns:
+            return np.empty((frame.shape[0], 0), dtype=np.int64)
 
-def cats_num_transformer(features: pd.DataFrame) -> np.ndarray:
-    """Stack ordinal encodings for multiple categorical columns sharing enum metadata."""
-    cat_vecs = []
-    for cat_feature in features.columns:
-        enum_type = ENUM_FIELD_TYPES[cat_feature]
-        cat_vec = cat_num_transformer(features[cat_feature], enum_type=enum_type)
-        cat_vecs.append(cat_vec)
-    return np.hstack(cat_vecs)
+        return np.column_stack(encoded_columns)
+
+    def _get_aligned_frame(self, df: pd.DataFrame | None) -> tuple[pd.DataFrame, list[str]]:
+        """Align incoming frame with fitted column order."""
+        source = self._df if df is None else df
+        columns = [col for col in self.cols if col in source.columns]
+        if not columns:
+            empty_frame = pd.DataFrame(index=source.index)
+            return empty_frame, []
+        return source[columns], columns
+
+    def _sanitize_series(
+        self,
+        series: pd.Series,
+        categories: list[Any],
+    ) -> pd.Series:
+        """Map unseen or missing categories to the configured unknown token."""
+        series = series.astype("object").copy()
+        category_set = set(categories)
+        allow_unknown = "unknown" in category_set
+
+        invalid_mask = ~series.isin(category_set) & series.notna()
+        if invalid_mask.any():
+            if allow_unknown:
+                series.loc[invalid_mask] = "unknown"
+            else:
+                invalid_values = series.loc[invalid_mask].unique().tolist()
+                raise ValueError(
+                    f"Found unseen categories {invalid_values} and unknown handling disabled.",
+                )
+
+        if allow_unknown:
+            series = series.fillna("unknown")
+        elif series.isna().any():
+            raise ValueError("NaN values encountered without unknown category enabled.")
+
+        return series
 
 
 def num_transformer(feature: pd.DataFrame) -> np.ndarray:

@@ -6,21 +6,20 @@ This repository hosts the foundation of an intelligent product support system th
 
 ## Platform Highlights
 - **Prefect-powered ingestion** creates bronze/offline/online Parquet datasets in S3/MinIO and publishes online-ready slices into Redis JSON.
-- **Hydra-driven configuration** keeps environments reproducible; overrides are accepted via CLI flags or environment variables.
+- **Pydantic-based configuration** keeps environments reproducible; defaults live in code and `.env` entries or environment variables override them at runtime.
 - **Structured logging with Loguru** outputs module-scoped logs (`data`, `ml`, `api`) to the `logs/` directory and stdout.
 - **Experiment infrastructure** combines MLflow tracking targets with S3 artifact storage and Redis feature serving.
 - **Model configuration stubs** for CatBoost, XGBoost, and deep learning pipelines support forthcoming Optuna/Bayesian tuning and ensemble workflows.
 
 ## Repository Layout
 ```
-conf/                      # Hydra configuration tree (data stores, models, logging)
 docker/                    # Local stack (MinIO, MLflow, Redis) via Docker Compose
 logs/                      # Structured logs written by Loguru handlers
 outputs/                   # Placeholder for generated artifacts and analysis exports
 src/tickets/
   data/                    # Prefect flows/tasks for ingestion and offline analytics
   schemas/                 # Pydantic v2 models (tickets, metrics, task enums)
-  utils/                   # Shared config and IO helpers (Hydra, logging, clients)
+  utils/                   # Shared configuration helpers, logging, and clients
 tests/                     # Pytest suite (add tests alongside new features)
 uv.lock                    # Locked dependency set managed by uv
 ```
@@ -38,22 +37,21 @@ uv.lock                    # Locked dependency set managed by uv
    - MinIO S3 API: http://127.0.0.1:9000 (console at :9001)
    - MLflow UI: http://127.0.0.1:5001
    - Redis Stack: redis://127.0.0.1:6379
-4. Run the offline analytics task (prints metrics and writes them back to S3):
+4. Run the data maintenance tasks (ingest → check → analyze) using the defaults or environment overrides from your `.env`:
    ```bash
-   uv run -m tickets.main data.bucket=tickets data.num_online=1000
+   uv run -m tickets.main
    ```
-5. Execute the ingestion flow when new raw data arrives:
+5. Execute the ingestion flow when new raw data arrives (adjust env vars inline or in `.env` first):
    ```bash
-   uv run python -c "from tickets.data.runner import runner; \
-from tickets.schemas.tasks import Task; runner(Task.INGEST)" \
-data.raw_file=raw/tickets.json data.bucket=tickets
+   DATA__RAW_FILE=raw/tickets.json DATA__BUCKET=tickets uv run python -c "from tickets.data.runner import runner; \
+from tickets.schemas.tasks import Task; runner(Task.INGEST)"
    ```
 
 ## Configuration
-- Default Hydra configuration lives in `conf/config.yaml`; dataset specifics are under `conf/data/*`.
-- Override any value via CLI (e.g., `data=prod`, `redis_host=redis.internal`).
-- Secrets such as MinIO credentials read `${oc.env:...}` values; export environment variables before running flows.
-- All modules import a shared `cfg` object that is locked read-only to prevent accidental mutation during runtime.
+- Typed defaults live in `src/tickets/schemas/config.py` inside the `AppConfig` settings model.
+- Override any value via environment variables (e.g., `DATA__BUCKET=tickets`, `REDIS_HOST=redis.internal`) or update the project `.env`.
+- Secrets such as MinIO credentials are sourced from `.env` or real environment variables; export them before running flows in other shells.
+- All modules import a shared `CONFIG` instance that is frozen to prevent accidental mutation during runtime.
 
 ## Data Pipelines
 ### Prefect ingestion (`tickets.data.ingest`)
@@ -70,8 +68,8 @@ The flow is orchestrated by Prefect tasks, enabling retries, scheduling, and Pre
 - Metrics are logged and saved back to S3/MinIO as JSON for downstream dashboards or alerting.
 
 ## Modeling & Retrieval Roadmap
-- **Classical ML**: CatBoost/XGBoost training pipelines with Optuna/Bayesian optimization and feature importance tracking (config prototypes live under `conf/{catboost,xgboost}`).
-- **Deep learning**: Torch-based text encoders with DataLoader abstractions, early stopping, and scheduler support (`conf/dnn`).
+- **Classical ML**: CatBoost/XGBoost training pipelines with Optuna/Bayesian optimization and feature importance tracking (hyper-parameters managed via `AppConfig.xgboost`).
+- **Deep learning**: Torch-based text encoders with DataLoader abstractions, early stopping, and scheduler support (defaults surfaced by `AppConfig.dnn`).
 - **Hybrid retrieval**: Planned graph-enhanced RAG stack combining semantic search (Sentence Transformers), metadata filters, and success-aware re-ranking.
 - **Continual learning**: Agent feedback loops will push outcomes into an MLflow model registry and surface drift diagnostics.
 

@@ -11,9 +11,8 @@ import torch
 from torch.utils.data import Dataset
 
 from tickets.mlmodels.transformer import (
+    CategoriesTransformer,
     bool_transformer,
-    cats_num_transformer,
-    cats_onehot_transformer,
     num_transformer,
     tfidf_text_transformer,
 )
@@ -115,11 +114,13 @@ class TicketDataSet:
         df: pd.DataFrame,
         target_col: str,
         *,
+        cat_transformer: CategoriesTransformer,
         feature_cols: list[str] = FEATURE_COLUMNS,
     ) -> None:
         self.df = validate_feature_frame(df, target_col=target_col, feature_cols=feature_cols)
         self.target_col = target_col
         self.feature_cols = feature_cols
+        self.cat_transformer = cat_transformer
         self._transform_features()
 
     def _transform_features(self) -> None:
@@ -132,8 +133,8 @@ class TicketDataSet:
         self.text_arr = tfidf_text_transformer(self.df[self.txt_cols + self.txt_list_cols])
         self.bool_arr = bool_transformer(self.df[self.bool_cols])
         self.num_arr = num_transformer(self.df[self.num_cols])
-        self.cat_onehot_arr = cats_onehot_transformer(self.df[self.cat_cols])
-        self.cat_num_arr = cats_num_transformer(self.df[self.cat_cols])
+        self.cat_onehot_arr = self.cat_transformer.one_hot(self.df[self.cat_cols])
+        self.cat_num_arr = self.cat_transformer.number(self.df[self.cat_cols])
         self.feature_arrs = [
             self.text_arr,
             self.bool_arr,
@@ -141,8 +142,8 @@ class TicketDataSet:
             self.cat_onehot_arr,
         ]
 
-        self.target_onehot_arr = cats_onehot_transformer(self.df[[self.target_col]])
-        self.target_num_arr = cats_num_transformer(self.df[[self.target_col]])
+        self.target_onehot_arr = self.cat_transformer.one_hot(self.df[[self.target_col]])
+        self.target_num_arr = self.cat_transformer.number(self.df[[self.target_col]])
 
     def get_xgb_dataset(self) -> tuple[np.ndarray, np.ndarray]:
         return np.hstack(self.feature_arrs), self.target_num_arr
@@ -151,9 +152,14 @@ class TicketDataSet:
         return TorchDataSet(self)
 
 
+def get_df_by_cat(df: pd.DataFrame, cat: str) -> pd.DataFrame:
+    res = df[df["category"] == cat]
+    return res.copy()
+
+
 if __name__ == "__main__":
     online_df = load_df_from_s3(data_path=CONFIG.data.online_file, group=__file__)
-    tickets = TicketDataSet(df=online_df, target_col="category")
+    cat_transformer = CategoriesTransformer(online_df)
+    tickets = TicketDataSet(df=online_df, target_col="category", cat_transformer=cat_transformer)
     xbg_data = tickets.get_xgb_dataset()
     torch_data = tickets.get_torch_dataset()
-    pass
