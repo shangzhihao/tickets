@@ -209,9 +209,8 @@ outputs
 .vscode
 *.parquet
 tickets.json
-<<<<<<< HEAD
 *.duckdb
-docker/data/minio/.minio.sys
+docker/data/minio/
 dump.rdb
 mlflow.db
 xl.meta

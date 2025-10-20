@@ -3,10 +3,10 @@ services:
     image: minio/minio
     command: server /data --console-address :9001
     env_file:
-      - ../.env
+      - ./.env
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is not set}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is not set}
+      MINIO_ROOT_USER: ${DATA__MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${DATA__MINIO_ROOT_PASSWORD}
     volumes:
       - ./data/minio:/data
     ports:
@@ -28,7 +28,7 @@ services:
       --host 0.0.0.0
       --port 5000
     env_file:
-      - ../.env
+      - ./.env
     volumes:
       - ./data/mlflow:/mlflow
     ports:
@@ -37,15 +37,15 @@ services:
   redis:
     image: redis/redis-stack-server:latest
     env_file:
-      - ../.env
+      - ./.env
     environment:
-      REDIS_ARGS: "--requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is not set}"
+      REDIS_ARGS: "--requirepass ${REDIS_PASSWORD}"
     volumes:
       - ./data/redis:/data
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD is not set}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
