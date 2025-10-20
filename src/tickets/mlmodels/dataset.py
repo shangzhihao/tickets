@@ -25,7 +25,7 @@ from tickets.schemas.ticket import (
 )
 from tickets.utils.config_util import CONFIG
 from tickets.utils.io_util import load_df_from_s3
-from tickets.utils.log_util import ML_LOGGER
+from tickets.utils.log_util import DATA_LOGGER
 
 FEATURE_COLUMNS = NUM_FEATURES + BOOL_FEATURES + CAT_FEATURES + TEXT_FEATURES + TEXT_LIST_FEATURES
 
@@ -67,7 +67,7 @@ def chronological_split(
     validation_df = ordered.iloc[train_end:validation_end].reset_index(drop=True)
     test_df = ordered.iloc[validation_end:].reset_index(drop=True)
 
-    ML_LOGGER.info(
+    DATA_LOGGER.info(
         "Chronological split sizes | train=%d validation=%d test=%d",
         len(train_df),
         len(validation_df),

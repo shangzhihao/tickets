@@ -12,7 +12,7 @@ from xgboost import XGBClassifier
 
 from tickets.mlmodels.base import ModelTrainer
 from tickets.utils.config_util import CONFIG
-from tickets.utils.log_util import ML_LOGGER
+from tickets.utils.log_util import XGB_LOGGER
 
 
 class XGBTrainer(ModelTrainer[XGBClassifier]):
@@ -104,7 +104,7 @@ class XGBTrainer(ModelTrainer[XGBClassifier]):
             return
 
         param_grid = dict(grid_cfg.param_grid)
-        ML_LOGGER.bind(model=self.model_name).info(
+        XGB_LOGGER.info(
             "Starting XGBoost grid search across %d hyperparameters.",
             len(param_grid),
         )
@@ -130,7 +130,7 @@ class XGBTrainer(ModelTrainer[XGBClassifier]):
             eval_set=[(self.val_x, self.val_y)],
             verbose=False,
         )
-        ML_LOGGER.bind(model=self.model_name).info(
+        XGB_LOGGER.info(
             "Grid search complete | best_score=%.4f params=%s",
             float(grid_search.best_score_),
             grid_search.best_params_,

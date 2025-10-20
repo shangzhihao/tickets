@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from tickets.mlmodels.base import ModelResult, ModelTrainer
+from tickets.mlmodels.base import ModelTrainer
 from tickets.mlmodels.dataset import TicketDataSet, chronological_split
 from tickets.mlmodels.dnn_trainer import DNNTicketClassifier, DNNTrainer
 from tickets.mlmodels.evaluate import ResultReport
@@ -86,7 +86,6 @@ def main(
 __all__ = [
     "DNNTrainer",
     "DNNTicketClassifier",
-    "ModelResult",
     "ModelTrainer",
     "XGBTicketClassifer",
     "XGBTrainer",

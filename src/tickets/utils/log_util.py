@@ -14,7 +14,7 @@ from tickets.utils.config_util import CONFIG
 if TYPE_CHECKING:
     from tickets.schemas.config import AppConfig
 
-MODULES: Final[tuple[str, ...]] = ("api", "data", "ml", "event")
+MODULES: Final[tuple[str, ...]] = ("api", "data", "xgb_model", "dnn_model", "event")
 
 
 def _module_filter(target: str, record: dict[str, object]) -> bool:
@@ -69,6 +69,7 @@ def _configure_module_loggers(config: AppConfig) -> dict[str, Any]:
 module_loggers = _configure_module_loggers(CONFIG)
 
 DATA_LOGGER = module_loggers["data"]
-ML_LOGGER = module_loggers["ml"]
+XGB_LOGGER = module_loggers["xgb_model"]
+DNN_LOGGER = module_loggers["dnn_model"]
 API_LOGGER = module_loggers["api"]
 EVENT_LOGGER = module_loggers["event"]

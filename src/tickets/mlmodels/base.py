@@ -4,29 +4,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
 import mlflow
 from numpy.typing import ArrayLike
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import LabelEncoder
 
 from tickets.mlmodels.evaluate import ModelName, ResultReport
 from tickets.utils.config_util import CONFIG
-from tickets.utils.log_util import ML_LOGGER
-
-
-@dataclass(frozen=True)
-class ModelResult:
-    """Container holding an individual target model and its evaluation metrics."""
-
-    target: str
-    pipeline: Pipeline
-    label_encoder: LabelEncoder
-    classes: tuple[str, ...]
-    metrics: ResultReport
-
 
 TModel = TypeVar("TModel")
 
@@ -67,7 +51,6 @@ class ModelTrainer(Generic[TModel], ABC):
         """Persist the hyper-parameters and trained model into MLflow."""
 
         tracking_uri = self._build_tracking_uri()
-        logger = ML_LOGGER.bind(model=self.model_name, experiment=self.exp_name)
         try:
             mlflow.set_tracking_uri(tracking_uri)
             experiment = mlflow.set_experiment(self.exp_name)
@@ -79,9 +62,8 @@ class ModelTrainer(Generic[TModel], ABC):
                 if params:
                     mlflow.log_params(params)
                 model_logger()
-            logger.info("Logged training artifacts to MLflow | tracking_uri=%s", tracking_uri)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            logger.exception("Failed to log training artifacts to MLflow: %s", exc)
+        except Exception as exc:
+            raise RuntimeError("Failed to log training artifacts to MLflow") from exc
 
     @abstractmethod
     def train(self) -> TModel:
@@ -101,11 +83,4 @@ class ModelTrainer(Generic[TModel], ABC):
             target_names=self._target_names,
         )
         self.validation_report_ = report
-        ML_LOGGER.bind(model=self.model_name).info("Validation macro F1: %.4f", report.macro_f1)
         return report
-
-
-__all__ = [
-    "ModelResult",
-    "ModelTrainer",
-]

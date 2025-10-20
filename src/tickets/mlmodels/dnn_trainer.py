@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 from tickets.mlmodels.base import ModelTrainer
 from tickets.mlmodels.evaluate import ResultReport
 from tickets.utils.config_util import CONFIG
-from tickets.utils.log_util import ML_LOGGER
+from tickets.utils.log_util import DNN_LOGGER
 
 
 class DNNTicketClassifier(torch.nn.Module):
@@ -83,13 +83,12 @@ class DNNTrainer(ModelTrainer[DNNTicketClassifier]):
 
         best_val_loss = float("inf")
         epochs_without_improvement = 0
-        logger = ML_LOGGER.bind(model=self.model_name)
 
         for epoch in range(1, self.max_epochs + 1):
             train_loss = self._train_epoch()
             val_loss, val_accuracy = self._evaluate()
 
-            logger.info(
+            DNN_LOGGER.info(
                 "Epoch %d | train_loss=%.4f val_loss=%.4f val_acc=%.4f",
                 epoch,
                 train_loss,
@@ -104,7 +103,7 @@ class DNNTrainer(ModelTrainer[DNNTicketClassifier]):
             else:
                 epochs_without_improvement += 1
                 if epochs_without_improvement >= self.patience:
-                    logger.info(
+                    DNN_LOGGER.info(
                         "Early stopping triggered after %d epochs without improvement.",
                         epochs_without_improvement,
                     )
