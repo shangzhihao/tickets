@@ -22,7 +22,7 @@ from tickets.schemas.metrics import (
 )
 from tickets.schemas.ticket import CustomerSentiment
 from tickets.utils.config_util import CONFIG
-from tickets.utils.io_util import s3_client
+from tickets.utils.io_util import load_df_from_s3, s3_client
 from tickets.utils.log_util import DATA_LOGGER
 
 SENTIMENT_COLUMN: Final[str] = "customer_sentiment"
@@ -222,3 +222,14 @@ class TicketsAnalyzer:
         )
         self.analysis_res = analysis_res
         return analysis_res
+
+
+def main() -> None:
+    """Load the offline dataset, evaluate quality, and return the summary report."""
+    df = load_df_from_s3(data_path=CONFIG.data.offline_file, group=__file__)
+    analyzer = TicketsAnalyzer(df)
+    print(analyzer.analyze())
+
+
+if __name__ == "__main__":
+    main()

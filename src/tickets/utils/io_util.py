@@ -1,4 +1,4 @@
-"""Shared IO utilities configured via Hydra logging defaults."""
+"""Shared IO utilities configured via application settings."""
 
 from __future__ import annotations
 

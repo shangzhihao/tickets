@@ -1,16 +1,18 @@
-"""Shared IO utilities configured via Hydra logging defaults."""
+"""Structured Loguru utilities configured via application settings."""
 
 from __future__ import annotations
 
 import sys
 from functools import partial
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from loguru import logger
-from omegaconf import DictConfig
 
 from tickets.utils.config_util import CONFIG
+
+if TYPE_CHECKING:
+    from tickets.schemas.config import AppConfig
 
 MODULES: Final[tuple[str, ...]] = ("api", "data", "ml", "event")
 
@@ -21,7 +23,7 @@ def _module_filter(target: str, record: dict[str, object]) -> bool:
     return record["extra"].get("module") == target  # type: ignore
 
 
-def _configure_module_loggers(config: DictConfig) -> dict[str, Any]:
+def _configure_module_loggers(config: AppConfig) -> dict[str, Any]:
     """Configure loguru handlers and return binders for known modules."""
 
     output_dir = Path(config.logging.file_sink.output_dir)

@@ -14,7 +14,6 @@ import mlflow.xgboost
 import numpy as np
 import torch
 from numpy.typing import ArrayLike, NDArray
-from omegaconf import OmegaConf
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
@@ -135,7 +134,7 @@ class XGBTrainer(ModelTrainer[XGBClassifier]):
         if train_x.shape[0] == 0:
             raise ValueError("Training data must not be empty.")
         num_class = np.unique(train_y).size
-        model = XGBClassifier(num_class=num_class, **CONFIG.xgboost.gbrt_params)
+        model = XGBClassifier(num_class=num_class, **CONFIG.xgboost.gbrt_params.model_dump())
         super().__init__(
             model=model,
             model_name="xgb_ticket_classifier",
@@ -205,7 +204,7 @@ class XGBTrainer(ModelTrainer[XGBClassifier]):
         if not grid_cfg.enabled:
             return
 
-        param_grid = OmegaConf.to_container(grid_cfg.param_grid, resolve=True)
+        param_grid = dict(grid_cfg.param_grid)
         ML_LOGGER.bind(model=self.model_name).info(
             "Starting XGBoost grid search across %d hyperparameters.",
             len(param_grid),

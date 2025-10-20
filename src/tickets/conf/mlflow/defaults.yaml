@@ -1,2 +1,0 @@
-host: ${oc.env:MLFLOW_HOST, 127.0.0.1}
-port: ${oc.env:MLFLOW_PORT, 5001}
