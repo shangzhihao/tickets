@@ -140,7 +140,7 @@ class XGBTrainer(ModelTrainer[XGBClassifier]):
     def _log_model_artifact(self) -> None:
         """Persist the trained XGBoost model to MLflow."""
 
-        mlflow.xgboost.log_model(self.model, artifact_path="model")
+        mlflow.xgboost.log_model(self.model, name="model")
 
 
 class XGBTicketClassifer(XGBTrainer):

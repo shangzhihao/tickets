@@ -215,3 +215,4 @@ dump.rdb
 mlflow.db
 xl.meta
 lightning_logs
+docker/data

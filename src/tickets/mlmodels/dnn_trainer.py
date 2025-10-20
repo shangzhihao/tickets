@@ -222,7 +222,7 @@ class DNNTrainer(ModelTrainer[DNNTicketClassifier]):
 
         model_copy = deepcopy(self.model)
         model_copy = model_copy.to("cpu")
-        mlflow.pytorch.log_model(pytorch_model=model_copy, artifact_path="model")
+        mlflow.pytorch.log_model(pytorch_model=model_copy, name="model")
 
 
 __all__ = [

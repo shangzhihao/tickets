@@ -151,7 +151,7 @@ class XGBoostGridSearchConfig(BaseModel):
     cv: int = 3
     scoring: str = "f1_macro"
     n_jobs: int = -1
-    verbose: int = 2
+    verbose: int = 1
     refit: str = "f1_macro"
     param_grid: dict[str, list[int | float]] = Field(default_factory=_default_xgboost_param_grid)
 
