@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar
 
+import mlflow
+import mlflow.pytorch
+import mlflow.xgboost
 import numpy as np
 import torch
 from numpy.typing import ArrayLike, NDArray
@@ -49,11 +52,48 @@ class ModelTrainer(Generic[TModel], ABC):
         model: TModel,
         model_name: Literal["dnn_ticket_classifier", "xgb_ticket_classifier"],
         target_names: Sequence[str] | None,
+        exp_name: str,
     ) -> None:
         self.model = model
         self.model_name = model_name
         self.validation_report_: ResultReport | None = None
         self._target_names = tuple(target_names) if target_names is not None else None
+        self.exp_name = exp_name
+
+    def _build_tracking_uri(self) -> str:
+        """Construct the MLflow tracking URI from configuration."""
+
+        mlflow_cfg = CONFIG.mlflow
+        host = getattr(mlflow_cfg, "host", None)
+        port = getattr(mlflow_cfg, "port", None)
+        if not host or not port:
+            raise RuntimeError("MLflow host or port is missing in configuration.")
+        return f"http://{host}:{port}"
+
+    def _log_training_artifacts(
+        self,
+        *,
+        params: dict[str, Any],
+        model_logger: Callable[[], None],
+    ) -> None:
+        """Persist the hyper-parameters and trained model into MLflow."""
+
+        tracking_uri = self._build_tracking_uri()
+        logger = ML_LOGGER.bind(model=self.model_name, experiment=self.exp_name)
+        try:
+            mlflow.set_tracking_uri(tracking_uri)
+            experiment = mlflow.set_experiment(self.exp_name)
+            experiment_id = experiment.experiment_id if experiment is not None else None
+            with mlflow.start_run(
+                run_name=self.model_name,
+                experiment_id=experiment_id,
+            ):
+                if params:
+                    mlflow.log_params(params)
+                model_logger()
+            logger.info("Logged training artifacts to MLflow | tracking_uri=%s", tracking_uri)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.exception("Failed to log training artifacts to MLflow: %s", exc)
 
     @abstractmethod
     def train(self) -> TModel:
@@ -86,6 +126,7 @@ class XGBTrainer(ModelTrainer[XGBClassifier]):
         train_set: tuple[np.ndarray, np.ndarray],
         val_set: tuple[np.ndarray, np.ndarray],
         target_names: Sequence[str] | None = None,
+        exp_name: str = "xgb_ticket_classifier",
     ) -> None:
         train_x, train_y = self._normalise_dataset(train_set, split_name="train")
         val_x, val_y = self._normalise_dataset(val_set, split_name="validation")
@@ -99,6 +140,7 @@ class XGBTrainer(ModelTrainer[XGBClassifier]):
             model=model,
             model_name="xgb_ticket_classifier",
             target_names=target_names,
+            exp_name=exp_name,
         )
         self.train_x = train_x
         self.train_y = train_y
@@ -136,6 +178,10 @@ class XGBTrainer(ModelTrainer[XGBClassifier]):
         )
         validation_predictions = self.predict(self.val_x)
         self._record_validation_report(y_true=self.val_y, y_pred=validation_predictions)
+        self._log_training_artifacts(
+            params=self.model.get_params(),
+            model_logger=self._log_model_artifact,
+        )
         return self.model
 
     def predict(
@@ -193,6 +239,11 @@ class XGBTrainer(ModelTrainer[XGBClassifier]):
         )
         self.model.set_params(**grid_search.best_params_)
 
+    def _log_model_artifact(self) -> None:
+        """Persist the trained XGBoost model to MLflow."""
+
+        mlflow.xgboost.log_model(self.model, artifact_path="model")
+
 
 class XGBTicketClassifer(XGBTrainer):
     """Backward-compatible alias for legacy usage sites."""
@@ -203,8 +254,14 @@ class XGBTicketClassifer(XGBTrainer):
         val_set: tuple[np.ndarray, np.ndarray],
         *,
         target_names: Sequence[str] | None = None,
+        exp_name: str = "xgb_ticket_classifier",
     ) -> None:
-        super().__init__(train_set=train_set, val_set=val_set, target_names=target_names)
+        super().__init__(
+            train_set=train_set,
+            val_set=val_set,
+            target_names=target_names,
+            exp_name=exp_name,
+        )
 
 
 class DNNTicketClassifier(torch.nn.Module):
@@ -241,6 +298,7 @@ class DNNTrainer(ModelTrainer[DNNTicketClassifier]):
         val_set: Dataset,
         *,
         target_names: Sequence[str] | None = None,
+        exp_name: str = "dnn_ticket_classifier",
     ) -> None:
         self.device = torch.device(CONFIG.dnn.device)
         model = model.to(self.device)
@@ -248,6 +306,7 @@ class DNNTrainer(ModelTrainer[DNNTicketClassifier]):
             model=model,
             model_name="dnn_ticket_classifier",
             target_names=target_names,
+            exp_name=exp_name,
         )
         self.train_loader = DataLoader(
             train_set,
@@ -302,6 +361,10 @@ class DNNTrainer(ModelTrainer[DNNTicketClassifier]):
         if self.best_state is not None:
             self.model.load_state_dict(self.best_state)
         self._build_validation_report()
+        self._log_training_artifacts(
+            params=self._collect_hyperparameters(),
+            model_logger=self._log_model_artifact,
+        )
         return self.model
 
     def predict(
@@ -387,6 +450,27 @@ class DNNTrainer(ModelTrainer[DNNTicketClassifier]):
         if not targets:
             raise RuntimeError("Validation report cannot be produced without samples.")
         return self._record_validation_report(y_true=targets, y_pred=predictions)
+
+    def _collect_hyperparameters(self) -> dict[str, Any]:
+        """Assemble the DNN hyper-parameters for MLflow logging."""
+
+        return {
+            "batch_size": int(CONFIG.dnn.batch_size),
+            "dropout": float(CONFIG.dnn.dropout),
+            "hidden": int(CONFIG.dnn.hidden),
+            "learning_rate": float(CONFIG.dnn.lr),
+            "max_epochs": int(self.max_epochs),
+            "patience": int(self.patience),
+            "device": str(CONFIG.dnn.device),
+            "dl_num_worker": int(CONFIG.dnn.dl_num_worker),
+        }
+
+    def _log_model_artifact(self) -> None:
+        """Persist the trained DNN model to MLflow."""
+
+        model_copy = deepcopy(self.model)
+        model_copy = model_copy.to("cpu")
+        mlflow.pytorch.log_model(model=model_copy, artifact_path="model")
 
 
 def main(
